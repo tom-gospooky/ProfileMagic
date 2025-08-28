@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm test)",
+      "Bash(npm install)",
+      "WebSearch",
+      "WebFetch(domain:ai.google.dev)",
+      "WebFetch(domain:api.slack.com)",
+      "Bash(npm ls:*)",
+      "Bash(npm start)",
+      "Bash(ngrok:*)",
+      "Bash(npm install:*)",
+      "Bash(brew install:*)",
+      "Bash(pkill:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
