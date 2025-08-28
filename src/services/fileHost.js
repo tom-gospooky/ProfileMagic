@@ -21,6 +21,11 @@ function startFileServer() {
     
     app.use('/files', express.static(tempDir));
     
+    // Health check endpoint
+    app.get('/health', (req, res) => {
+      res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+    });
+    
     fileServer = app.listen(PORT, (err) => {
       if (err) {
         reject(err);
