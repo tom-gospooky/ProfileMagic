@@ -50,7 +50,9 @@
 
 4. Update Slack app URLs to `https://your-app-name.herokuapp.com`
 
-### Railway (Recommended)
+### Railway (Recommended - Free Tier Available)
+
+Railway offers $5 free credit monthly (equivalent to ~500 hours), perfect for ProfileMagic.
 
 1. **Create Railway Project**
    ```bash
