@@ -4,7 +4,8 @@
   "description": "Slack integration for editing profile pictures with AI",
   "main": "src/app.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "node tiny.js",
+    "start:server": "node server.js", 
     "start:app": "node src/app.js",
     "dev": "nodemon src/app.js",
     "test": "jest",
