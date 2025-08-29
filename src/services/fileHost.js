@@ -3,7 +3,9 @@ const path = require('path');
 const fs = require('fs');
 
 let fileServer = null;
-const PORT = process.env.FILE_HOST_PORT || 3001;
+// Railway assigns PORT dynamically. For local development, use separate ports.
+const PORT = process.env.PORT || 3001;
+const isProduction = process.env.NODE_ENV === 'production';
 
 function startFileServer() {
   if (fileServer) {
@@ -41,7 +43,7 @@ function startFileServer() {
       });
     });
     
-    fileServer = app.listen(PORT, (err) => {
+    fileServer = app.listen(PORT, '0.0.0.0', (err) => {
       if (err) {
         reject(err);
       } else {

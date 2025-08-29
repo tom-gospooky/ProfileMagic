@@ -20,22 +20,29 @@ GEMINI_API_KEY=your-gemini-api-key-from-.env-file
 API_KEY=your-gemini-api-key-from-.env-file
 GEMINI_MODEL=gemini-2.5-flash-image-preview
 NODE_ENV=production
-PORT=3000
-FILE_HOST_PORT=3001
 ```
 
-**Note**: Copy the actual values from your local `.env` file
+**Important Notes:**
+- ❌ **Don't set PORT** - Railway assigns this automatically
+- ❌ **Don't set FILE_HOST_PORT** - Not needed on Railway
+- ✅ **BASE_URL will be added in Step 4** after you get your domain
+
+**Copy the actual values from your local `.env` file**
 
 ## Step 3: Get Your Domain
 
 Railway will provide you a domain like `https://profilemagic-production.up.railway.app`
 
-## Step 4: Update BASE_URL
+## Step 4: Add BASE_URL Variable
 
-Add this variable in Railway:
+After deployment, add this variable in Railway:
 ```
-BASE_URL=https://your-railway-domain.railway.app
+BASE_URL=https://your-actual-railway-domain.up.railway.app
 ```
+
+**Example:** `BASE_URL=https://profilemagic-production-abc123.up.railway.app`
+
+⚠️ **Make sure to include `https://` in the BASE_URL!**
 
 ## Step 5: You're Done!
 
