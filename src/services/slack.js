@@ -57,6 +57,10 @@ async function updateProfilePhoto(client, userId, imageUrl) {
     const imageBuffer = fs.readFileSync(tempImagePath);
     
     // Use user token for setPhoto API call
+    if (!process.env.SLACK_USER_TOKEN) {
+      throw new Error('User authorization required. Please reinstall the app to enable profile photo updates.');
+    }
+    
     const userClient = new (require('@slack/web-api').WebClient)(process.env.SLACK_USER_TOKEN);
     
     const result = await userClient.users.setPhoto({
@@ -69,9 +73,16 @@ async function updateProfilePhoto(client, userId, imageUrl) {
     return result;
   } catch (error) {
     console.error('Profile photo update error:', error.message);
+    if (error.data) {
+      console.error('Slack API error data:', error.data);
+    }
     
-    // If user token is not available or invalid, throw a specific error
-    if (error.data?.error === 'missing_scope' || error.data?.error === 'invalid_auth') {
+    // Handle specific Slack API errors
+    if (error.data?.error === 'missing_scope') {
+      throw new Error('Missing permissions. The user token needs users.profile:write scope.');
+    } else if (error.data?.error === 'invalid_auth') {
+      throw new Error('Invalid user token. Please reinstall the app to re-authorize.');
+    } else if (error.data?.error === 'not_authed') {
       throw new Error('User authorization required. Please reinstall the app and authorize with your personal account.');
     }
     
