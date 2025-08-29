@@ -135,8 +135,15 @@ async function editImage(imageUrl, prompt, client, userId) {
       imageSize: imageBuffer.length
     });
     
-    const model = ai.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash-image-preview' });
-    const response = await model.generateContent([originalImagePart, textPart]);
+    // Use the correct API method for @google/genai package
+    const response = await ai.generateContent({
+      model: process.env.GEMINI_MODEL || 'gemini-2.5-flash-image-preview',
+      contents: [
+        {
+          parts: [originalImagePart, textPart]
+        }
+      ]
+    });
     
     console.log('Received response from Gemini API');
     return await handleApiResponse(response, 'edit', client, userId);
