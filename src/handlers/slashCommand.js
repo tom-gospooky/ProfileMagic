@@ -41,16 +41,34 @@ async function processDirectPrompt(client, userId, prompt, triggerId, respond) {
         return;
       }
 
-      // Edit the image
-      const editedImageResult = await imageService.editImage(currentPhoto, prompt, client, userId);
+      // Check if user has recently uploaded an image to use as reference
+      const recentImages = global.recentImages || new Map();
+      const recentImage = recentImages.get(userId);
+      let referenceImageUrl = null;
+      
+      // Use recent image if it's less than 10 minutes old
+      if (recentImage && (Date.now() - recentImage.timestamp) < (10 * 60 * 1000)) {
+        referenceImageUrl = recentImage.url;
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`Using reference image: ${recentImage.filename}`);
+        }
+      }
+      
+      // Edit the image (with optional reference image)
+      const editedImageResult = await imageService.editImage(currentPhoto, prompt, client, userId, referenceImageUrl);
       
       // Send single response with before/after images and action buttons
+      let successText = `✅ *Image processing completed successfully!*\n\n*Prompt used:* "${prompt}"`;
+      if (referenceImageUrl && recentImage) {
+        successText += `\n📎 *Reference image:* ${recentImage.filename}`;
+      }
+      
       const responseBlocks = [
         {
           type: 'section',
           text: {
             type: 'mrkdwn',
-            text: `✅ *Image processing completed successfully!*\n\n*Prompt used:* "${prompt}"`
+            text: successText
           }
         },
         {
@@ -108,7 +126,7 @@ async function processDirectPrompt(client, userId, prompt, triggerId, respond) {
             type: 'button',
             text: {
               type: 'plain_text',
-              text: '✅ Apply to Profile'
+              text: '✅ Set as Profile Picture'
             },
             style: 'primary',
             action_id: 'approve_edit_message',
@@ -118,7 +136,7 @@ async function processDirectPrompt(client, userId, prompt, triggerId, respond) {
             type: 'button',
             text: {
               type: 'plain_text',
-              text: '🔄 Try Different Edit'
+              text: '🔄 Retry'
             },
             action_id: 'retry_edit_message'
           }
@@ -290,7 +308,7 @@ async function showPreviewModal(client, triggerId, originalImage, editedImage, p
         type: 'button',
         text: {
           type: 'plain_text',
-          text: '✅ Apply to Profile'
+          text: '✅ Set as Profile Picture'
         },
         style: 'primary',
         action_id: 'approve_edit',
@@ -300,7 +318,7 @@ async function showPreviewModal(client, triggerId, originalImage, editedImage, p
         type: 'button',
         text: {
           type: 'plain_text',
-          text: '🔄 Try Different Edit'
+          text: '🔄 Retry'
         },
         action_id: 'retry_edit',
         value: JSON.stringify({ originalImage, prompt })

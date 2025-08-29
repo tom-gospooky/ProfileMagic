@@ -111,11 +111,12 @@ const handleApiResponse = async (response, context = 'edit', client, userId) => 
   throw new Error(errorMessage);
 };
 
-async function editImage(imageUrl, prompt, client, userId) {
+async function editImage(imageUrl, prompt, client, userId, referenceImageUrl = null) {
   const isProduction = process.env.NODE_ENV === 'production';
   
   try {
     if (!isProduction) console.log(`Starting image edit with prompt: "${prompt}"`);
+    if (referenceImageUrl && !isProduction) console.log(`Using reference image: ${referenceImageUrl}`);
     
     // Initialize Gemini AI
     const ai = new GoogleGenAI(process.env.API_KEY);
@@ -133,8 +134,26 @@ async function editImage(imageUrl, prompt, client, userId) {
     // Convert to the format Gemini expects
     const originalImagePart = bufferToPart(imageBuffer);
     
-    // Create a simpler, less detailed prompt to avoid safety triggers
-    const editPrompt = `Edit this image: ${prompt}. Keep the edit natural and realistic.`;
+    // Download and convert reference image if provided
+    let referenceImagePart = null;
+    if (referenceImageUrl) {
+      try {
+        const referenceBuffer = await slackService.downloadImage(referenceImageUrl);
+        referenceImagePart = bufferToPart(referenceBuffer);
+        if (!isProduction) console.log(`Downloaded reference image, size: ${referenceBuffer.length} bytes`);
+      } catch (refError) {
+        console.error('Failed to download reference image:', refError.message);
+        // Continue without reference image
+      }
+    }
+    
+    // Create a prompt that includes reference image instructions if available
+    let editPrompt;
+    if (referenceImagePart) {
+      editPrompt = `Edit the first image using the style/elements from the second reference image: ${prompt}. Keep the edit natural and realistic. Apply the visual style, colors, or objects from the reference image to the first image.`;
+    } else {
+      editPrompt = `Edit this image: ${prompt}. Keep the edit natural and realistic.`;
+    }
 
     const textPart = { text: editPrompt };
 
@@ -147,27 +166,34 @@ async function editImage(imageUrl, prompt, client, userId) {
       });
     }
     
+    // Prepare content parts for API call
+    const contentParts = [originalImagePart];
+    if (referenceImagePart) {
+      contentParts.push(referenceImagePart);
+    }
+    contentParts.push(textPart);
+    
     // Try the most common API patterns for @google/genai
     let response;
     try {
       // Pattern 1: Direct model access
       const model = ai.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash-image-preview' });
       if (!isProduction) console.log('Using getGenerativeModel pattern');
-      response = await model.generateContent([originalImagePart, textPart]);
+      response = await model.generateContent(contentParts);
     } catch (error1) {
       if (!isProduction) console.log('getGenerativeModel failed, trying direct generateContent:', error1.message);
       try {
         // Pattern 2: Direct generateContent
         response = await ai.generateContent({
           model: process.env.GEMINI_MODEL || 'gemini-2.5-flash-image-preview',
-          contents: [{ parts: [originalImagePart, textPart] }]
+          contents: [{ parts: contentParts }]
         });
       } catch (error2) {
         if (!isProduction) console.log('Direct generateContent failed, trying models property:', error2.message);
         // Pattern 3: Models property
         response = await ai.models.generateContent({
           model: process.env.GEMINI_MODEL || 'gemini-2.5-flash-image-preview',
-          contents: [{ parts: [originalImagePart, textPart] }]
+          contents: [{ parts: contentParts }]
         });
       }
     }

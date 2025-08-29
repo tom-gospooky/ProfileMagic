@@ -46,6 +46,61 @@ app.action('cancel_edit', interactiveHandler.handleCancel);
 app.action('approve_edit_message', interactiveHandler.handleApproveMessage);
 app.action('retry_edit_message', interactiveHandler.handleRetryMessage);
 
+// File upload event handler for image reference feature
+app.event('file_shared', async ({ event, client, context }) => {
+  try {
+    // Get file info to check if it's an image
+    const fileInfo = await client.files.info({
+      file: event.file_id
+    });
+    
+    const file = fileInfo.file;
+    
+    // Check if it's an image file
+    if (file.mimetype && file.mimetype.startsWith('image/')) {
+      // Store recent image uploads for potential use with /boo commands
+      // Using a simple in-memory cache with user ID and timestamp
+      const recentImages = global.recentImages || (global.recentImages = new Map());
+      const userId = event.user_id;
+      const imageData = {
+        fileId: file.id,
+        url: file.url_private,
+        timestamp: Date.now(),
+        filename: file.name,
+        mimetype: file.mimetype
+      };
+      
+      recentImages.set(userId, imageData);
+      
+      // Clean up old entries (older than 10 minutes)
+      const tenMinutesAgo = Date.now() - (10 * 60 * 1000);
+      for (const [key, value] of recentImages.entries()) {
+        if (value.timestamp < tenMinutesAgo) {
+          recentImages.delete(key);
+        }
+      }
+      
+      // Send helpful message about using the image with /boo
+      await client.chat.postEphemeral({
+        channel: event.channel_id,
+        user: userId,
+        text: `📎 *Image detected!* I can use this image as a reference.\n\nTry: \`/boo add this hat\` to apply the style from your uploaded image to your profile photo! ✨`,
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `📎 *Image detected!* I can use this image as a reference.\n\nTry: \`/boo add this hat\` to apply the style from your uploaded image to your profile photo! ✨`
+            }
+          }
+        ]
+      });
+    }
+  } catch (error) {
+    console.error('Error handling file_shared event:', error.message);
+  }
+});
+
 // Error handler
 app.error((error) => {
   console.error('App error:', error);
