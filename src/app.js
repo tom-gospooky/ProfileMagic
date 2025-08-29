@@ -2,7 +2,7 @@ require('dotenv').config();
 const { App, SocketModeReceiver } = require('@slack/bolt');
 const slashCommandHandler = require('./handlers/slashCommand');
 const interactiveHandler = require('./handlers/interactive');
-const fileHost = require('./services/fileHost');
+const fileServer = require('./services/fileServer');
 
 // Validate required environment variables
 const requiredEnvVars = [
@@ -60,17 +60,13 @@ app.error((error) => {
       console.log(`📡 BASE_URL: ${process.env.BASE_URL}`);
     }
     
-    // Start file hosting server FIRST (critical for Railway health checks)
-    console.log('📁 Starting file hosting server...');
+    // Start Railway-compatible file server FIRST (critical for health checks)
+    console.log('📁 Starting Railway-compatible file server...');
     console.log(`🔧 PORT from env: ${process.env.PORT}`);
     try {
-      const filePort = await fileHost.startFileServer();
+      const filePort = await fileServer.startFileServer();
       console.log(`✅ File server running on port ${filePort}`);
       console.log(`🔗 Health check: ${process.env.BASE_URL || `http://localhost:${filePort}`}/health`);
-      
-      // Test internal health check
-      const testUrl = `http://localhost:${filePort}/health`;
-      console.log(`🧪 Testing internal health check: ${testUrl}`);
       
     } catch (fileServerError) {
       console.error('❌ File server failed to start:', fileServerError.message);

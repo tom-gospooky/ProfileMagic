@@ -17,7 +17,9 @@
       "Bash(git commit:*)",
       "Bash(gh repo create:*)",
       "Bash(git remote add:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(railway:*)",
+      "Bash(curl:*)"
     ],
     "deny": [],
     "ask": []

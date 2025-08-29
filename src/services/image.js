@@ -1,6 +1,6 @@
 const { GoogleGenAI } = require('@google/genai');
 const slackService = require('./slack');
-const fileHost = require('./fileHost');
+const fileServer = require('./fileServer');
 
 // Helper function to convert Buffer to the format Gemini expects
 const bufferToPart = (buffer) => {
@@ -65,7 +65,7 @@ const handleApiResponse = async (response, context = 'edit', client, userId) => 
       // Return both the file ID and local URL for fallback
       return {
         fileId: uploadResult.file.id,
-        localUrl: fileHost.saveTemporaryFile(imageBuffer, filename),
+        localUrl: await fileServer.saveTemporaryFile(imageBuffer, filename),
         slackFile: uploadResult.file
       };
       
@@ -73,7 +73,7 @@ const handleApiResponse = async (response, context = 'edit', client, userId) => 
       console.error('Slack upload failed, using local fallback');
       
       // Fallback to local file
-      const fileUrl = fileHost.saveTemporaryFile(imageBuffer, filename);
+      const fileUrl = await fileServer.saveTemporaryFile(imageBuffer, filename);
       if (!isProduction) console.log(`Saved edited image locally: ${fileUrl}`);
       return {
         fileId: null,
@@ -225,7 +225,7 @@ async function editImageMock(imageUrl, prompt) {
       const imageBuffer = await slackService.downloadImage(placeholderUrl);
       const timestamp = Date.now();
       const filename = `mock_edited_${timestamp}.jpg`;
-      const fileUrl = fileHost.saveTemporaryFile(imageBuffer, filename);
+      const fileUrl = await fileServer.saveTemporaryFile(imageBuffer, filename);
       
       if (!isProduction) console.log(`Created mock edited image: ${fileUrl}`);
       return fileUrl;
