@@ -66,12 +66,17 @@ app.get('/debug', (req, res) => {
 
 // Static files under /files/*
 app.use('/files', express.static(TEMP_DIR, {
-  fallthrough: false,
+  fallthrough: true, // Allow 404s to be handled by next middleware
   setHeaders: (res) => {
     res.setHeader('Cache-Control', 'public, max-age=300, immutable');
     res.setHeader('X-Content-Type-Options', 'nosniff');
   }
 }));
+
+// Handle 404s for missing files specifically  
+app.use('/files', (req, res) => {
+  res.status(404).json({ error: 'File not found', path: req.path });
+});
 
 // 404 handler
 app.use((req, res) => {
