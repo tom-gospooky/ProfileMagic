@@ -60,21 +60,28 @@ app.error((error) => {
       console.log(`📡 BASE_URL: ${process.env.BASE_URL}`);
     }
     
-    // Start file hosting server (always log this critical step)
+    // Start file hosting server FIRST (critical for Railway health checks)
     console.log('📁 Starting file hosting server...');
+    console.log(`🔧 PORT from env: ${process.env.PORT}`);
     try {
       const filePort = await fileHost.startFileServer();
       console.log(`✅ File server running on port ${filePort}`);
+      console.log(`🔗 Health check: ${process.env.BASE_URL || `http://localhost:${filePort}`}/health`);
+      
+      // Test internal health check
+      const testUrl = `http://localhost:${filePort}/health`;
+      console.log(`🧪 Testing internal health check: ${testUrl}`);
+      
     } catch (fileServerError) {
-      console.error('❌ File server failed to start:', fileServerError);
+      console.error('❌ File server failed to start:', fileServerError.message);
+      console.error('Full error:', fileServerError);
       throw fileServerError;
     }
     
-    // Start Slack app in Socket Mode (no port needed)
-    if (!isProduction) console.log('⚡ Starting Slack app...');
+    // Start Slack app in Socket Mode (no HTTP port needed)
+    console.log('⚡ Starting Slack app...');
     await app.start();
     console.log('⚡️ ProfileMagic is running!');
-    if (!isProduction) console.log(`🔗 Health check: ${process.env.BASE_URL || `http://localhost:${filePort}`}/health`);
     
   } catch (error) {
     console.error('❌ Failed to start app:', error.message);
