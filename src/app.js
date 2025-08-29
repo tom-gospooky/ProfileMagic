@@ -50,6 +50,9 @@ app.error((error) => {
 (async () => {
   try {
     console.log('🚀 Starting ProfileMagic...');
+    console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
+    console.log(`🔌 Railway PORT: ${process.env.PORT}`);
+    console.log(`📡 BASE_URL: ${process.env.BASE_URL}`);
     
     // Start file hosting server
     console.log('📁 Starting file hosting server...');
@@ -60,7 +63,7 @@ app.error((error) => {
     console.log('⚡ Starting Slack app...');
     await app.start();
     console.log('⚡️ Profile Magic Slack app is running!');
-    console.log(`🔗 Health check available at: ${process.env.BASE_URL || `http://localhost:${process.env.FILE_HOST_PORT || 3001}`}/health`);
+    console.log(`🔗 Health check available at: ${process.env.BASE_URL || `http://localhost:${filePort}`}/health`);
     
   } catch (error) {
     console.error('❌ Failed to start app:', error.message);

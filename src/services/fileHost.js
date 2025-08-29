@@ -3,9 +3,11 @@ const path = require('path');
 const fs = require('fs');
 
 let fileServer = null;
-// Railway assigns PORT dynamically. For local development, use separate ports.
+// Railway assigns PORT dynamically. For local development, use 3001.
 const PORT = process.env.PORT || 3001;
 const isProduction = process.env.NODE_ENV === 'production';
+
+console.log(`🔧 Port configuration: PORT=${process.env.PORT}, using ${PORT}`);
 
 function startFileServer() {
   if (fileServer) {
