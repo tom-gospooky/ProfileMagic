@@ -16,7 +16,16 @@ const bufferToPart = (buffer) => {
 };
 
 const handleApiResponse = async (response, context = 'edit', client, userId) => {
-  console.log('Full API response:', JSON.stringify(response, null, 2));
+  console.log('=== GEMINI API RESPONSE DEBUG ===');
+  console.log('Response structure:', Object.keys(response || {}));
+  console.log('Candidates:', response.candidates?.length || 'none');
+  if (response.candidates?.[0]) {
+    console.log('First candidate keys:', Object.keys(response.candidates[0]));
+    console.log('Finish reason:', response.candidates[0].finishReason);
+    console.log('Content parts:', response.candidates[0].content?.parts?.length || 'none');
+  }
+  console.log('Prompt feedback:', response.promptFeedback || 'none');
+  console.log('=== END DEBUG ===');
   
   // Check for prompt blocking first
   if (response.promptFeedback?.blockReason) {
@@ -133,24 +142,33 @@ Output: Return ONLY the final edited image. Do not return text.`;
     console.log('Sending image and prompt to Gemini 2.5 Flash Image Preview...');
     
     // Call the Gemini API
-    const response = await ai.models.generateContent({
+    console.log('API call details:', {
       model: process.env.GEMINI_MODEL || 'gemini-2.5-flash-image-preview',
-      contents: { parts: [originalImagePart, textPart] },
+      partsCount: 2,
+      imageSize: imageBuffer.length
     });
+    
+    const model = ai.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash-image-preview' });
+    const response = await model.generateContent([originalImagePart, textPart]);
     
     console.log('Received response from Gemini API');
     return await handleApiResponse(response, 'edit', client, userId);
 
   } catch (error) {
-    console.error('Error editing image with Gemini API:', error);
+    console.error('=== ERROR in editImage ===');
+    console.error('Error type:', error.constructor.name);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    console.error('=== END ERROR ===');
     
-    // Fallback: if API fails, return original image info
+    // Re-throw known content blocking errors to show user proper message
+    if (error.message === 'CONTENT_BLOCKED' || error.message === 'GENERATION_FAILED') {
+      throw error;
+    }
+    
+    // For other API errors, show generic failure
     console.warn('Falling back to original image due to API error');
-    return {
-      fileId: null,
-      localUrl: imageUrl,
-      slackFile: null
-    };
+    throw new Error('Failed to process your image. Please try again.');
   }
 }
 
