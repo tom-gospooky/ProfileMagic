@@ -52,12 +52,12 @@ const handleApiResponse = async (response, context = 'edit', client, userId) => 
     
     // Upload to Slack for proper display
     try {
-      const uploadResult = await client.files.upload({
-        channels: userId, // Upload as DM to user
+      const uploadResult = await client.files.uploadV2({
+        channel_id: userId, // Upload as DM to user
         file: imageBuffer,
         filename: filename,
         title: `AI Edited Profile Photo - ${context}`,
-        filetype: 'jpg'
+        alt_txt: `AI edited profile photo using prompt: ${context}`
       });
       
       if (!isProduction) console.log(`Uploaded image to Slack: ${uploadResult.file.id}`);

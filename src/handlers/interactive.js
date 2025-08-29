@@ -205,6 +205,7 @@ async function handleApproveMessage({ ack, body, client }) {
   await ack();
 
   const userId = body.user.id;
+  const isProduction = process.env.NODE_ENV === 'production';
   let editedImageUrl;
   let prompt;
 
