@@ -253,13 +253,39 @@ async function handleApproveMessage({ ack, body, client }) {
 async function handleRetryMessage({ ack, body, client }) {
   await ack();
 
-  // Show retry message in current context (no DM required)
-  if (body.response_url) {
-    const axios = require('axios');
-    await axios.post(body.response_url, {
+  // Send new ephemeral message instead of replacing the original
+  try {
+    await client.chat.postEphemeral({
+      channel: body.channel.id,
+      user: body.user.id,
       text: '🔄 *Want to try a different transformation?*\n\nUse `/boo your custom prompt` to create a new edit with a different prompt!',
-      response_type: 'ephemeral'
+      blocks: [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: '🔄 *Want to try a different transformation?*\n\nUse `/boo your custom prompt` to create a new edit with a different prompt!'
+          }
+        },
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: '*Example prompts:*\n• `/boo add sunglasses`\n• `/boo make it cartoon style`\n• `/boo add a hat`\n• `/boo vintage filter`'
+          }
+        }
+      ]
     });
+  } catch (error) {
+    console.error('Error sending retry message:', error.message);
+    // Fallback to response_url if chat.postEphemeral fails
+    if (body.response_url) {
+      const axios = require('axios');
+      await axios.post(body.response_url, {
+        text: '🔄 *Want to try a different transformation?*\n\nUse `/boo your custom prompt` to create a new edit with a different prompt!',
+        response_type: 'ephemeral'
+      });
+    }
   }
 }
 

@@ -44,7 +44,7 @@ async function processDirectPrompt(client, userId, prompt, triggerId, respond) {
       // Edit the image
       const editedImageResult = await imageService.editImage(currentPhoto, prompt, client, userId);
       
-      // Send single response with image and action buttons
+      // Send single response with before/after images and action buttons
       const responseBlocks = [
         {
           type: 'section',
@@ -52,17 +52,35 @@ async function processDirectPrompt(client, userId, prompt, triggerId, respond) {
             type: 'mrkdwn',
             text: `✅ *Image processing completed successfully!*\n\n*Prompt used:* "${prompt}"`
           }
+        },
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: '*Before & After Comparison:*'
+          }
         }
       ];
 
-      // Add image block if we have a result
+      // Add original image
+      responseBlocks.push({
+        type: 'image',
+        title: {
+          type: 'plain_text',
+          text: '📸 Original Image'
+        },
+        image_url: currentPhoto,
+        alt_text: 'Original profile photo'
+      });
+
+      // Add edited image
       if (editedImageResult.fileId) {
         // Use Slack file if upload succeeded
         responseBlocks.push({
           type: 'image',
           title: {
             type: 'plain_text',
-            text: 'AI-Edited Profile Photo'
+            text: '✨ AI-Edited Image'
           },
           slack_file: {
             id: editedImageResult.fileId
@@ -75,7 +93,7 @@ async function processDirectPrompt(client, userId, prompt, triggerId, respond) {
           type: 'image',
           title: {
             type: 'plain_text',
-            text: 'AI-Edited Profile Photo'
+            text: '✨ AI-Edited Image'
           },
           image_url: editedImageResult.localUrl,
           alt_text: 'AI-edited profile photo'
