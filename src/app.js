@@ -19,7 +19,8 @@ for (const envVar of requiredEnvVars) {
   }
 }
 
-console.log('✅ All required environment variables are set');
+const isProduction = process.env.NODE_ENV === 'production';
+if (!isProduction) console.log('✅ All required environment variables are set');
 
 const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
@@ -50,20 +51,22 @@ app.error((error) => {
 (async () => {
   try {
     console.log('🚀 Starting ProfileMagic...');
-    console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
-    console.log(`🔌 Railway PORT: ${process.env.PORT}`);
-    console.log(`📡 BASE_URL: ${process.env.BASE_URL}`);
+    if (!isProduction) {
+      console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
+      console.log(`🔌 Railway PORT: ${process.env.PORT}`);
+      console.log(`📡 BASE_URL: ${process.env.BASE_URL}`);
+    }
     
     // Start file hosting server
-    console.log('📁 Starting file hosting server...');
+    if (!isProduction) console.log('📁 Starting file hosting server...');
     const filePort = await fileHost.startFileServer();
-    console.log(`✅ File server running on port ${filePort}`);
+    if (!isProduction) console.log(`✅ File server running on port ${filePort}`);
     
     // Start Slack app
-    console.log('⚡ Starting Slack app...');
+    if (!isProduction) console.log('⚡ Starting Slack app...');
     await app.start();
-    console.log('⚡️ Profile Magic Slack app is running!');
-    console.log(`🔗 Health check available at: ${process.env.BASE_URL || `http://localhost:${filePort}`}/health`);
+    console.log('⚡️ ProfileMagic is running!');
+    if (!isProduction) console.log(`🔗 Health check: ${process.env.BASE_URL || `http://localhost:${filePort}`}/health`);
     
   } catch (error) {
     console.error('❌ Failed to start app:', error.message);

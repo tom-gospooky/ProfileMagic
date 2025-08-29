@@ -35,7 +35,7 @@ async function handlePresetSelection({ ack, body, view, client }) {
     await showPreviewModal(client, body.trigger_id, currentPhoto, editedImage, preset.prompt);
     
   } catch (error) {
-    console.error('Error processing preset selection:', error);
+    console.error('Preset selection error:', error.message);
     await client.chat.postEphemeral({
       channel: body.user.id,
       user: userId,
@@ -72,8 +72,9 @@ async function handleApprove({ ack, body, client }) {
     prompt = "unknown";
   }
 
+  const isProduction = process.env.NODE_ENV === 'production';
   try {
-    console.log(`Updating profile photo for user ${userId} with image: ${editedImageUrl}`);
+    if (!isProduction) console.log(`Updating profile photo for user ${userId}`);
     
     // Update the user's profile photo
     await slackService.updateProfilePhoto(client, userId, editedImageUrl);
@@ -104,7 +105,7 @@ async function handleApprove({ ack, body, client }) {
     });
 
   } catch (error) {
-    console.error('Error approving edit:', error);
+    console.error('Edit approval error:', error.message);
     
     await client.views.update({
       view_id: body.view.id,
@@ -218,22 +219,24 @@ async function handleApproveMessage({ ack, body, client }) {
   }
 
   try {
-    console.log(`Updating profile photo for user ${userId} with image: ${editedImageUrl}`);
+    if (!isProduction) console.log(`Updating profile photo for user ${userId}`);
     
     // Update the user's profile photo
     await slackService.updateProfilePhoto(client, userId, editedImageUrl);
     
-    // Send success response as DM
-    await client.chat.postMessage({
-      channel: userId, // DM the user directly
+    // Send success response as DM - use chat.postEphemeral instead of postMessage
+    await client.chat.postEphemeral({
+      channel: userId,
+      user: userId,
       text: `✅ *Success! Your profile photo has been updated!* 🎉\n\n*Applied transformation:* "${prompt}"\n\nYour new profile photo is now live across Slack.`
     });
 
   } catch (error) {
-    console.error('Error approving edit:', error);
+    console.error('Edit approval error:', error.message);
     
-    await client.chat.postMessage({
-      channel: userId, // DM the user directly
+    await client.chat.postEphemeral({
+      channel: userId,
+      user: userId,
       text: '❌ *Failed to update your profile photo.*\n\nPlease try again or contact your workspace admin if the problem persists.'
     });
   }
@@ -242,8 +245,9 @@ async function handleApproveMessage({ ack, body, client }) {
 async function handleRetryMessage({ ack, body, client }) {
   await ack();
 
-  await client.chat.postMessage({
-    channel: body.user.id, // DM the user directly
+  await client.chat.postEphemeral({
+    channel: body.user.id,
+    user: body.user.id,
     text: '🔄 *Want to try a different transformation?*\n\nUse `/boo your custom prompt` to create a new edit with a different prompt!'
   });
 }

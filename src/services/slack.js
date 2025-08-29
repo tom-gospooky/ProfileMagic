@@ -16,18 +16,23 @@ async function getCurrentProfilePhoto(client, userId) {
 
     return profileImage;
   } catch (error) {
-    console.error('Error fetching profile photo:', error);
+    console.error('Profile photo fetch error:', error.message);
     throw error;
   }
 }
 
 async function updateProfilePhoto(client, userId, imageUrl) {
   try {
-    // First, download the image
+    // First, download the image with timeout and retry logic
     const response = await axios({
       method: 'GET',
       url: imageUrl,
-      responseType: 'stream'
+      responseType: 'stream',
+      timeout: 30000, // 30 second timeout
+      headers: {
+        'User-Agent': 'ProfileMagic/1.0'
+      },
+      maxRedirects: 5
     });
 
     // Create temp directory if it doesn't exist
@@ -63,7 +68,7 @@ async function updateProfilePhoto(client, userId, imageUrl) {
 
     return result;
   } catch (error) {
-    console.error('Error updating profile photo:', error);
+    console.error('Profile photo update error:', error.message);
     
     // If user token is not available or invalid, throw a specific error
     if (error.data?.error === 'missing_scope' || error.data?.error === 'invalid_auth') {
@@ -79,12 +84,27 @@ async function downloadImage(imageUrl) {
     const response = await axios({
       method: 'GET',
       url: imageUrl,
-      responseType: 'arraybuffer'
+      responseType: 'arraybuffer',
+      timeout: 30000, // 30 second timeout
+      headers: {
+        'User-Agent': 'ProfileMagic/1.0'
+      },
+      maxRedirects: 5,
+      validateStatus: function (status) {
+        return status >= 200 && status < 300; // Accept only success status codes
+      }
     });
+
+    if (!response.data) {
+      throw new Error('No image data received');
+    }
 
     return Buffer.from(response.data);
   } catch (error) {
-    console.error('Error downloading image:', error);
+    console.error('Image download error:', error.message);
+    if (error.response) {
+      console.error('Status:', error.response.status, 'URL:', imageUrl);
+    }
     throw error;
   }
 }

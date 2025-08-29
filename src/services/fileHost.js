@@ -3,11 +3,14 @@ const path = require('path');
 const fs = require('fs');
 
 let fileServer = null;
-// Railway assigns PORT dynamically. For local development, use 3001.
+// Railway assigns PORT dynamically. Use Railway PORT or fallback to 3001 for local dev.
 const PORT = process.env.PORT || 3001;
 const isProduction = process.env.NODE_ENV === 'production';
 
-console.log(`🔧 Port configuration: PORT=${process.env.PORT}, using ${PORT}`);
+// Reduced logging for production to avoid hitting Railway rate limits
+if (!isProduction) {
+  console.log(`🔧 Port configuration: PORT=${process.env.PORT}, using ${PORT}`);
+}
 
 function startFileServer() {
   if (fileServer) {
@@ -17,13 +20,21 @@ function startFileServer() {
   return new Promise((resolve, reject) => {
     const app = express();
     
-    // Serve static files from temp directory
+    // Serve static files from temp directory with proper error handling
     const tempDir = path.join(__dirname, '../../temp');
     if (!fs.existsSync(tempDir)) {
       fs.mkdirSync(tempDir, { recursive: true });
     }
     
-    app.use('/files', express.static(tempDir));
+    // Add middleware to handle file serving errors gracefully
+    app.use('/files', (req, res, next) => {
+      const filePath = path.join(tempDir, req.path);
+      if (fs.existsSync(filePath)) {
+        express.static(tempDir)(req, res, next);
+      } else {
+        res.status(404).json({ error: 'File not found', path: req.path });
+      }
+    });
     
     // Health check endpoint
     app.get('/health', (req, res) => {
@@ -49,7 +60,7 @@ function startFileServer() {
       if (err) {
         reject(err);
       } else {
-        console.log(`File server running on port ${PORT}`);
+        if (!isProduction) console.log(`File server running on port ${PORT}`);
         resolve(PORT);
       }
     });
@@ -89,7 +100,7 @@ function cleanupOldFiles() {
     
     if (now - stat.mtime.getTime() > maxAge) {
       fs.unlinkSync(filePath);
-      console.log(`Cleaned up old file: ${file}`);
+      if (!isProduction) console.log(`Cleaned up old file: ${file}`);
     }
   });
 }
