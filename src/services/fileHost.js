@@ -23,7 +23,22 @@ function startFileServer() {
     
     // Health check endpoint
     app.get('/health', (req, res) => {
-      res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+      res.status(200).json({ 
+        status: 'ok', 
+        timestamp: new Date().toISOString(),
+        service: 'ProfileMagic FileHost',
+        port: PORT
+      });
+    });
+    
+    // Add a root endpoint
+    app.get('/', (req, res) => {
+      res.status(200).json({ 
+        service: 'ProfileMagic', 
+        status: 'running',
+        message: 'ProfileMagic Slack bot is running!',
+        healthCheck: '/health'
+      });
     });
     
     fileServer = app.listen(PORT, (err) => {
