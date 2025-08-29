@@ -1,5 +1,22 @@
 // Standalone Railway-compatible file server
 require('dotenv').config();
+
+// Bullet-proof startup logging to catch crashes
+process.on('uncaughtException', (e) => {
+  console.error('Uncaught Exception:', e);
+  // don't exit; let health check see 500s instead of 502s while you debug
+});
+process.on('unhandledRejection', (e) => {
+  console.error('Unhandled Rejection:', e);
+});
+
+console.log('Booting file server...', {
+  node: process.version,
+  cwd: process.cwd(),
+  portEnv: process.env.PORT,
+  tempDirEnv: process.env.TEMP_DIR
+});
+
 const express = require('express');
 const path = require('path');
 const fs = require('fs/promises');
@@ -34,6 +51,18 @@ app.get('/health', (_, res) => res.status(200).json({
   timestamp: new Date().toISOString(),
   port: process.env.PORT
 }));
+
+// Debug endpoint to confirm env and cwd
+app.get('/debug', (req, res) => {
+  res.json({
+    pid: process.pid,
+    node: process.version,
+    cwd: process.cwd(),
+    port: process.env.PORT,
+    tempDir: TEMP_DIR,
+    envKeys: Object.keys(process.env).sort().slice(0, 30) // don't dump secrets
+  });
+});
 
 // Static files under /files/*
 app.use('/files', express.static(TEMP_DIR, {
