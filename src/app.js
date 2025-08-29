@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { App } = require('@slack/bolt');
+const { App, SocketModeReceiver } = require('@slack/bolt');
 const slashCommandHandler = require('./handlers/slashCommand');
 const interactiveHandler = require('./handlers/interactive');
 const fileHost = require('./services/fileHost');
@@ -22,12 +22,15 @@ for (const envVar of requiredEnvVars) {
 const isProduction = process.env.NODE_ENV === 'production';
 if (!isProduction) console.log('✅ All required environment variables are set');
 
+// Create a Socket Mode receiver that doesn't start an HTTP server
+const receiver = new SocketModeReceiver({
+  appToken: process.env.SLACK_APP_TOKEN,
+});
+
 const app = new App({
   token: process.env.SLACK_BOT_TOKEN,
   signingSecret: process.env.SLACK_SIGNING_SECRET,
-  socketMode: true,
-  appToken: process.env.SLACK_APP_TOKEN,
-  // Socket mode uses WebSocket, no HTTP server needed
+  receiver
 });
 
 // Slash command handler
@@ -59,8 +62,13 @@ app.error((error) => {
     
     // Start file hosting server (always log this critical step)
     console.log('📁 Starting file hosting server...');
-    const filePort = await fileHost.startFileServer();
-    console.log(`✅ File server running on port ${filePort}`);
+    try {
+      const filePort = await fileHost.startFileServer();
+      console.log(`✅ File server running on port ${filePort}`);
+    } catch (fileServerError) {
+      console.error('❌ File server failed to start:', fileServerError);
+      throw fileServerError;
+    }
     
     // Start Slack app in Socket Mode (no port needed)
     if (!isProduction) console.log('⚡ Starting Slack app...');
