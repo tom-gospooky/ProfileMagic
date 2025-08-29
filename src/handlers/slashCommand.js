@@ -1,17 +1,66 @@
 const { getAllPresets } = require('../utils/presets');
 const slackService = require('../services/slack');
 const imageService = require('../services/image');
+const userTokens = require('../services/userTokens');
+const { getOAuthUrl } = require('../services/fileServer');
 
 async function handleSlashCommand({ command, ack, respond, client, body }) {
   await ack();
 
   const userId = body.user_id;
+  const teamId = body.team_id;
   const prompt = command.text?.trim();
 
   try {
-    // If user provided a prompt, process it directly
+    // Check if user is authorized to update their profile
+    if (!userTokens.isUserAuthorized(userId, teamId)) {
+      const authUrl = getOAuthUrl(userId, teamId);
+      
+      await respond({
+        text: '🔐 *Authorization Required*',
+        response_type: 'ephemeral',
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '🔐 *ProfileMagic needs permission to update your profile photo!*\n\nTo use this feature, you need to authorize the app with your personal Slack account.'
+            }
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `👆 *Click the button below to authorize:*`
+            },
+            accessory: {
+              type: 'button',
+              text: {
+                type: 'plain_text',
+                text: '🔗 Authorize ProfileMagic',
+                emoji: true
+              },
+              url: authUrl,
+              style: 'primary'
+            }
+          },
+          {
+            type: 'context',
+            elements: [
+              {
+                type: 'mrkdwn',
+                text: '🔒 _Your authorization is stored securely and only used for profile picture updates._'
+              }
+            ]
+          }
+        ]
+      });
+      return;
+    }
+
+    // User is authorized, proceed with normal flow
     if (prompt) {
-      await processDirectPrompt(client, userId, prompt, body.trigger_id, respond);
+      await processDirectPrompt(client, userId, teamId, prompt, body.trigger_id, respond);
     } else {
       // Show preset selection modal
       await showPresetModal(client, body.trigger_id);
@@ -25,7 +74,7 @@ async function handleSlashCommand({ command, ack, respond, client, body }) {
   }
 }
 
-async function processDirectPrompt(client, userId, prompt, triggerId, respond) {
+async function processDirectPrompt(client, userId, teamId, prompt, triggerId, respond) {
   // Process in background after acknowledging the command
   setTimeout(async () => {
     try {
@@ -41,27 +90,11 @@ async function processDirectPrompt(client, userId, prompt, triggerId, respond) {
         return;
       }
 
-      // Check if user has recently uploaded an image to use as reference
-      const recentImages = global.recentImages || new Map();
-      const recentImage = recentImages.get(userId);
-      let referenceImageUrl = null;
+      // Edit the image (without reference for now)
+      const editedImageResult = await imageService.editImage(currentPhoto, prompt, client, userId);
       
-      // Use recent image if it's less than 10 minutes old
-      if (recentImage && (Date.now() - recentImage.timestamp) < (10 * 60 * 1000)) {
-        referenceImageUrl = recentImage.url;
-        if (process.env.NODE_ENV !== 'production') {
-          console.log(`Using reference image: ${recentImage.filename}`);
-        }
-      }
-      
-      // Edit the image (with optional reference image)
-      const editedImageResult = await imageService.editImage(currentPhoto, prompt, client, userId, referenceImageUrl);
-      
-      // Send single response with before/after images and action buttons
+      // Send single response with before/after images and action buttons  
       let successText = `✅ *Image processing completed successfully!*\n\n*Prompt used:* "${prompt}"`;
-      if (referenceImageUrl && recentImage) {
-        successText += `\n📎 *Reference image:* ${recentImage.filename}`;
-      }
       
       const responseBlocks = [
         {
@@ -139,6 +172,15 @@ async function processDirectPrompt(client, userId, prompt, triggerId, respond) {
               text: '🔄 Retry'
             },
             action_id: 'retry_edit_message'
+          },
+          {
+            type: 'button',
+            text: {
+              type: 'plain_text',
+              text: '📎 Use Reference Image'
+            },
+            action_id: 'use_reference_image',
+            value: JSON.stringify({ originalPrompt: prompt, currentPhoto, editedImage: editedImageResult.localUrl })
           }
         ]
       });

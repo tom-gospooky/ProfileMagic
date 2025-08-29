@@ -2,6 +2,7 @@ const { getPreset } = require('../utils/presets');
 const slackService = require('../services/slack');
 const imageService = require('../services/image');
 const axios = require('axios');
+const { getOAuthUrl } = require('../services/fileServer');
 
 async function handlePresetSelection({ ack, body, view, client }) {
   await ack();
@@ -59,6 +60,7 @@ async function handleApprove({ ack, body, client }) {
   await ack();
 
   const userId = body.user.id;
+  const teamId = body.team.id;
   let editedImageUrl;
   let prompt;
 
@@ -78,7 +80,7 @@ async function handleApprove({ ack, body, client }) {
     if (!isProduction) console.log(`Updating profile photo for user ${userId}`);
     
     // Update the user's profile photo
-    await slackService.updateProfilePhoto(client, userId, editedImageUrl);
+    await slackService.updateProfilePhoto(client, userId, teamId, editedImageUrl);
     
     // Close modal and show success message
     await client.views.update({
@@ -108,29 +110,72 @@ async function handleApprove({ ack, body, client }) {
   } catch (error) {
     console.error('Edit approval error:', error.message);
     
-    await client.views.update({
-      view_id: body.view.id,
-      view: {
-        type: 'modal',
-        title: {
-          type: 'plain_text',
-          text: 'Error ❌'
-        },
-        blocks: [
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: '*Failed to update your profile photo.*\n\nPlease try again or contact your workspace admin if the problem persists.'
+    // Handle authorization error
+    if (error.message === 'USER_NOT_AUTHORIZED') {
+      const authUrl = getOAuthUrl(userId, teamId);
+      
+      await client.views.update({
+        view_id: body.view.id,
+        view: {
+          type: 'modal',
+          title: {
+            type: 'plain_text',
+            text: 'Authorization Required 🔐'
+          },
+          blocks: [
+            {
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: '*ProfileMagic needs permission to update your profile photo!*\n\nClick the button below to authorize the app.'
+              }
+            },
+            {
+              type: 'actions',
+              elements: [
+                {
+                  type: 'button',
+                  text: {
+                    type: 'plain_text',
+                    text: '🔗 Authorize ProfileMagic'
+                  },
+                  url: authUrl,
+                  style: 'primary'
+                }
+              ]
             }
+          ],
+          close: {
+            type: 'plain_text',
+            text: 'Close'
           }
-        ],
-        close: {
-          type: 'plain_text',
-          text: 'Close'
         }
-      }
-    });
+      });
+    } else {
+      await client.views.update({
+        view_id: body.view.id,
+        view: {
+          type: 'modal',
+          title: {
+            type: 'plain_text',
+            text: 'Error ❌'
+          },
+          blocks: [
+            {
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: '*Failed to update your profile photo.*\n\nPlease try again or contact your workspace admin if the problem persists.'
+              }
+            }
+          ],
+          close: {
+            type: 'plain_text',
+            text: 'Close'
+          }
+        }
+      });
+    }
   }
 }
 
@@ -205,6 +250,7 @@ async function handleApproveMessage({ ack, body, client }) {
   await ack();
 
   const userId = body.user.id;
+  const teamId = body.team.id;
   const isProduction = process.env.NODE_ENV === 'production';
   let editedImageUrl;
   let prompt;
@@ -224,7 +270,7 @@ async function handleApproveMessage({ ack, body, client }) {
     if (!isProduction) console.log(`Updating profile photo for user ${userId}`);
     
     // Update the user's profile photo
-    await slackService.updateProfilePhoto(client, userId, editedImageUrl);
+    await slackService.updateProfilePhoto(client, userId, teamId, editedImageUrl);
     
     // Show success message in current context (no DM required)
     if (body.response_url) {
@@ -239,13 +285,49 @@ async function handleApproveMessage({ ack, body, client }) {
   } catch (error) {
     console.error('Edit approval error:', error.message);
     
-    // Show error message in current context (no DM required)
-    if (body.response_url) {
-      const axios = require('axios');
-      await axios.post(body.response_url, {
-        text: '❌ *Failed to update your profile photo.*\n\nPlease try again or contact your workspace admin if the problem persists.',
-        response_type: 'ephemeral'
-      });
+    // Handle authorization error
+    if (error.message === 'USER_NOT_AUTHORIZED') {
+      const authUrl = getOAuthUrl(userId, teamId);
+      
+      if (body.response_url) {
+        const axios = require('axios');
+        await axios.post(body.response_url, {
+          text: '🔐 *Authorization Required*',
+          response_type: 'ephemeral',
+          blocks: [
+            {
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: '*ProfileMagic needs permission to update your profile photo!*\n\nClick the button below to authorize the app.'
+              }
+            },
+            {
+              type: 'actions',
+              elements: [
+                {
+                  type: 'button',
+                  text: {
+                    type: 'plain_text',
+                    text: '🔗 Authorize ProfileMagic'
+                  },
+                  url: authUrl,
+                  style: 'primary'
+                }
+              ]
+            }
+          ]
+        });
+      }
+    } else {
+      // Show error message in current context (no DM required)
+      if (body.response_url) {
+        const axios = require('axios');
+        await axios.post(body.response_url, {
+          text: '❌ *Failed to update your profile photo.*\n\nPlease try again or contact your workspace admin if the problem persists.',
+          response_type: 'ephemeral'
+        });
+      }
     }
   }
 }
@@ -289,6 +371,305 @@ async function handleRetryMessage({ ack, body, client }) {
   }
 }
 
+async function handleReferenceImageModal({ ack, body, client }) {
+  await ack();
+  
+  try {
+    // Parse the action value to get context
+    const actionData = JSON.parse(body.actions[0].value);
+    const { originalPrompt, currentPhoto, editedImage } = actionData;
+    
+    // Get recent files from the channel to show as options
+    const channelHistory = await client.conversations.history({
+      channel: body.channel.id,
+      limit: 20
+    });
+    
+    // Find image files from recent messages
+    const imageFiles = [];
+    for (const message of channelHistory.messages) {
+      if (message.files) {
+        for (const file of message.files) {
+          if (file.mimetype && file.mimetype.startsWith('image/')) {
+            imageFiles.push({
+              text: {
+                type: 'plain_text',
+                text: `${file.name} (${new Date(file.timestamp * 1000).toLocaleDateString()})`
+              },
+              value: JSON.stringify({
+                fileId: file.id,
+                url: file.url_private,
+                filename: file.name,
+                originalPrompt,
+                currentPhoto,
+                editedImage
+              })
+            });
+          }
+        }
+      }
+    }
+    
+    // Show modal with recent images
+    await client.views.open({
+      trigger_id: body.trigger_id,
+      view: {
+        type: 'modal',
+        callback_id: 'reference_image_modal',
+        title: {
+          type: 'plain_text',
+          text: 'Choose Reference Image'
+        },
+        submit: {
+          type: 'plain_text',
+          text: 'Use This Image'
+        },
+        close: {
+          type: 'plain_text',
+          text: 'Cancel'
+        },
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `📎 *Select a reference image* to enhance your edit:\n\n*Original prompt:* "${originalPrompt}"`
+            }
+          },
+          {
+            type: 'input',
+            block_id: 'reference_selection',
+            element: {
+              type: 'static_select',
+              action_id: 'selected_reference',
+              placeholder: {
+                type: 'plain_text',
+                text: 'Choose an image from recent uploads'
+              },
+              options: imageFiles.length > 0 ? imageFiles.slice(0, 10) : [{
+                text: {
+                  type: 'plain_text',
+                  text: 'No recent images found'
+                },
+                value: 'none'
+              }]
+            },
+            label: {
+              type: 'plain_text',
+              text: 'Reference Image'
+            }
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '_💡 Tip: Upload an image to this channel first, then use this modal to select it as a reference._'
+            }
+          }
+        ]
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error opening reference image modal:', error.message);
+  }
+}
+
+async function handleReferenceImageSubmission({ ack, body, view, client }) {
+  await ack();
+
+  const userId = body.user.id;
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  try {
+    // Get the selected reference image
+    const selectedValue = view.state.values.reference_selection.selected_reference.selected_option?.value;
+    
+    if (!selectedValue || selectedValue === 'none') {
+      await client.views.update({
+        view_id: body.view.id,
+        view: {
+          type: 'modal',
+          title: {
+            type: 'plain_text',
+            text: 'No Selection'
+          },
+          blocks: [{
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '❌ No reference image was selected. Please try again.'
+            }
+          }],
+          close: {
+            type: 'plain_text',
+            text: 'Close'
+          }
+        }
+      });
+      return;
+    }
+
+    // Parse the selected image data
+    const imageData = JSON.parse(selectedValue);
+    const { url, originalPrompt, currentPhoto } = imageData;
+
+    if (!isProduction) console.log(`Processing with reference image: ${imageData.filename}`);
+
+    // Show processing message
+    await client.views.update({
+      view_id: body.view.id,
+      view: {
+        type: 'modal',
+        title: {
+          type: 'plain_text',
+          text: 'Processing...'
+        },
+        blocks: [{
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: '🎨 *Processing your image with reference...*\\n\\nThis may take a moment!'
+          }
+        }],
+        close: {
+          type: 'plain_text',
+          text: 'Close'
+        }
+      }
+    });
+
+    // Process the image with reference
+    const editedImageResult = await imageService.editImage(currentPhoto, originalPrompt, client, userId, url);
+
+    // Show success with new result
+    const successBlocks = [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `✅ *Image processed with reference!*\\n\\n*Prompt:* "${originalPrompt}"\\n*Reference:* ${imageData.filename}`
+        }
+      },
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: '*Before & After with Reference:*'
+        }
+      }
+    ];
+
+    // Add original image
+    successBlocks.push({
+      type: 'image',
+      title: {
+        type: 'plain_text',
+        text: '📸 Original Image'
+      },
+      image_url: currentPhoto,
+      alt_text: 'Original profile photo'
+    });
+
+    // Add edited image with reference
+    if (editedImageResult.fileId) {
+      successBlocks.push({
+        type: 'image',
+        title: {
+          type: 'plain_text',
+          text: '✨ AI-Edited with Reference'
+        },
+        slack_file: {
+          id: editedImageResult.fileId
+        },
+        alt_text: 'AI-edited profile photo with reference'
+      });
+    } else if (editedImageResult.localUrl) {
+      successBlocks.push({
+        type: 'image',
+        title: {
+          type: 'plain_text',
+          text: '✨ AI-Edited with Reference'
+        },
+        image_url: editedImageResult.localUrl,
+        alt_text: 'AI-edited profile photo with reference'
+      });
+    }
+
+    // Add action buttons
+    successBlocks.push({
+      type: 'actions',
+      elements: [
+        {
+          type: 'button',
+          text: {
+            type: 'plain_text',
+            text: '✅ Set as Profile Picture'
+          },
+          style: 'primary',
+          action_id: 'approve_edit',
+          value: JSON.stringify({ editedImage: editedImageResult.localUrl, prompt: originalPrompt })
+        },
+        {
+          type: 'button',
+          text: {
+            type: 'plain_text',
+            text: '🔄 Try Again'
+          },
+          action_id: 'retry_edit'
+        }
+      ]
+    });
+
+    await client.views.update({
+      view_id: body.view.id,
+      view: {
+        type: 'modal',
+        callback_id: 'preview_modal',
+        title: {
+          type: 'plain_text',
+          text: 'Reference Edit Complete'
+        },
+        blocks: successBlocks
+      }
+    });
+
+  } catch (error) {
+    console.error('Reference image processing error:', error.message);
+    
+    let errorMessage = '❌ Failed to process image with reference. Please try again.';
+    
+    // Check for specific error types
+    if (error.message === 'CONTENT_BLOCKED') {
+      errorMessage = `🚫 **Content Blocked**\\n\\n${error.userMessage}\\n\\n*Try different prompts or reference images.*`;
+    } else if (error.message === 'GENERATION_FAILED') {
+      errorMessage = `⚠️ **Generation Failed**\\n\\n${error.userMessage}`;
+    }
+
+    await client.views.update({
+      view_id: body.view.id,
+      view: {
+        type: 'modal',
+        title: {
+          type: 'plain_text',
+          text: 'Error'
+        },
+        blocks: [{
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: errorMessage
+          }
+        }],
+        close: {
+          type: 'plain_text',
+          text: 'Close'
+        }
+      }
+    });
+  }
+}
+
 module.exports = {
   handlePresetSelection,
   handlePreviewAction,
@@ -297,5 +678,7 @@ module.exports = {
   handleRetry,
   handleCancel,
   handleApproveMessage,
-  handleRetryMessage
+  handleRetryMessage,
+  handleReferenceImageModal,
+  handleReferenceImageSubmission
 };

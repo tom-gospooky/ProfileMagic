@@ -2,6 +2,8 @@
 
 A Slack bot that transforms profile pictures using AI. Users can edit their profile photos with natural language prompts like "add sunglasses", "make it cartoon style", or "add a hat".
 
+> **⚠️ Important**: ProfileMagic now requires individual user authorization to update profile photos. See [OAUTH_SETUP.md](OAUTH_SETUP.md) for configuration details.
+
 ## Features
 
 - **AI-Powered Editing**: Uses Google Gemini 2.5 Flash Image Preview for realistic photo transformations
@@ -41,9 +43,10 @@ Edit `.env` file with your credentials:
 ```env
 # Slack App Configuration
 SLACK_BOT_TOKEN=xoxb-your-bot-token-here
-SLACK_USER_TOKEN=xoxp-your-user-token-here
 SLACK_SIGNING_SECRET=your-signing-secret-here
 SLACK_APP_TOKEN=xapp-your-app-token-here
+SLACK_CLIENT_ID=your-slack-client-id
+SLACK_CLIENT_SECRET=your-slack-client-secret
 
 # Google Gemini API 
 GEMINI_API_KEY=your-gemini-api-key
@@ -104,7 +107,7 @@ npm start
 1. Run `/boo your prompt` - e.g., `/boo add sunglasses`
 2. Or run `/boo` alone to see preset options
 3. Preview your edited image
-4. Click "Apply to Profile" to update your Slack photo
+4. Click "Set as Profile Picture" to update your Slack photo
 
 ## Technical Architecture
 

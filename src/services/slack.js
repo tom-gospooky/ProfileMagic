@@ -1,6 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
+const { WebClient } = require('@slack/web-api');
+const userTokens = require('./userTokens');
 
 async function getCurrentProfilePhoto(client, userId) {
   try {
@@ -21,8 +23,18 @@ async function getCurrentProfilePhoto(client, userId) {
   }
 }
 
-async function updateProfilePhoto(client, userId, imageUrl) {
+async function updateProfilePhoto(botClient, userId, teamId, imageUrl) {
   try {
+    // Get the user's individual token
+    const userToken = userTokens.getUserToken(userId, teamId);
+    
+    if (!userToken) {
+      throw new Error('USER_NOT_AUTHORIZED');
+    }
+    
+    // Create a user client with their personal token
+    const userClient = new WebClient(userToken);
+    
     // First, download the image with timeout and retry logic
     const response = await axios({
       method: 'GET',
@@ -52,17 +64,10 @@ async function updateProfilePhoto(client, userId, imageUrl) {
       writer.on('error', reject);
     });
 
-    // Upload to Slack using user token (required for setPhoto)
-    // Note: This requires the user to have authorized the app with user scopes
+    // Upload to Slack using user's personal token
     const imageBuffer = fs.readFileSync(tempImagePath);
     
-    // Use user token for setPhoto API call
-    if (!process.env.SLACK_USER_TOKEN) {
-      throw new Error('User authorization required. Please reinstall the app to enable profile photo updates.');
-    }
-    
-    const userClient = new (require('@slack/web-api').WebClient)(process.env.SLACK_USER_TOKEN);
-    
+    // Use the user client (not bot client) - this will update the user's own profile
     const result = await userClient.users.setPhoto({
       image: imageBuffer
     });
@@ -73,17 +78,23 @@ async function updateProfilePhoto(client, userId, imageUrl) {
     return result;
   } catch (error) {
     console.error('Profile photo update error:', error.message);
+    
+    // Handle the case where user needs to authorize
+    if (error.message === 'USER_NOT_AUTHORIZED') {
+      throw error;
+    }
+    
     if (error.data) {
       console.error('Slack API error data:', error.data);
     }
     
     // Handle specific Slack API errors
     if (error.data?.error === 'missing_scope') {
-      throw new Error('Missing permissions. The user token needs users.profile:write scope.');
+      throw new Error('Missing permissions. Please re-authorize the app.');
     } else if (error.data?.error === 'invalid_auth') {
-      throw new Error('Invalid user token. Please reinstall the app to re-authorize.');
+      throw new Error('Invalid user token. Please re-authorize the app.');
     } else if (error.data?.error === 'not_authed') {
-      throw new Error('User authorization required. Please reinstall the app and authorize with your personal account.');
+      throw new Error('User authorization required. Please authorize the app.');
     }
     
     throw error;
