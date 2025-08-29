@@ -27,7 +27,7 @@ const app = new App({
   signingSecret: process.env.SLACK_SIGNING_SECRET,
   socketMode: true,
   appToken: process.env.SLACK_APP_TOKEN,
-  // Don't set port here, we'll handle it in the file server
+  // Socket mode uses WebSocket, no HTTP server needed
 });
 
 // Slash command handler
@@ -62,7 +62,7 @@ app.error((error) => {
     const filePort = await fileHost.startFileServer();
     if (!isProduction) console.log(`✅ File server running on port ${filePort}`);
     
-    // Start Slack app
+    // Start Slack app in Socket Mode (no port needed)
     if (!isProduction) console.log('⚡ Starting Slack app...');
     await app.start();
     console.log('⚡️ ProfileMagic is running!');
