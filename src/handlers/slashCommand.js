@@ -44,80 +44,75 @@ async function processDirectPrompt(client, userId, prompt, triggerId, respond) {
       // Edit the image
       const editedImageResult = await imageService.editImage(currentPhoto, prompt, client, userId);
       
-      // Send follow-up response with interactive buttons (instead of modal due to trigger_id expiring)
-      await respond({
-        text: `✅ *Image processing completed successfully!*\n\n*Prompt used:* "${prompt}"`,
-        response_type: 'ephemeral',
-        blocks: [
+      // Send single response with image and action buttons
+      const responseBlocks = [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `✅ *Image processing completed successfully!*\n\n*Prompt used:* "${prompt}"`
+          }
+        }
+      ];
+
+      // Add image block if we have a result
+      if (editedImageResult.fileId) {
+        // Use Slack file if upload succeeded
+        responseBlocks.push({
+          type: 'image',
+          title: {
+            type: 'plain_text',
+            text: 'AI-Edited Profile Photo'
+          },
+          slack_file: {
+            id: editedImageResult.fileId
+          },
+          alt_text: 'AI-edited profile photo'
+        });
+      } else if (editedImageResult.localUrl) {
+        // Fallback to public URL if Slack upload failed
+        responseBlocks.push({
+          type: 'image',
+          title: {
+            type: 'plain_text',
+            text: 'AI-Edited Profile Photo'
+          },
+          image_url: editedImageResult.localUrl,
+          alt_text: 'AI-edited profile photo'
+        });
+      }
+
+      // Add action buttons
+      responseBlocks.push({
+        type: 'actions',
+        elements: [
           {
-            type: 'section',
+            type: 'button',
             text: {
-              type: 'mrkdwn',
-              text: `✅ *Image processing completed successfully!*\n\n*Prompt used:* "${prompt}"`
-            }
+              type: 'plain_text',
+              text: '✅ Apply to Profile'
+            },
+            style: 'primary',
+            action_id: 'approve_edit_message',
+            value: JSON.stringify({ editedImage: editedImageResult.localUrl, prompt })
+          },
+          {
+            type: 'button',
+            text: {
+              type: 'plain_text',
+              text: '🔄 Try Different Edit'
+            },
+            action_id: 'retry_edit_message'
           }
         ]
       });
 
-      // Add image block if we have a successful result
-      if (editedImageResult.fileId) {
-        // Add image block using Slack file
-        await respond({
-          text: '🖼️ Here\'s your edited image:',
-          response_type: 'ephemeral',
-          blocks: [
-            {
-              type: 'image',
-              title: {
-                type: 'plain_text',
-                text: 'AI-Edited Profile Photo'
-              },
-              slack_file: {
-                id: editedImageResult.fileId
-              },
-              alt_text: 'AI-edited profile photo'
-            },
-            {
-              type: 'actions',
-              elements: [
-                {
-                  type: 'button',
-                  text: {
-                    type: 'plain_text',
-                    text: '✅ Apply to Profile'
-                  },
-                  style: 'primary',
-                  action_id: 'approve_edit_message',
-                  value: JSON.stringify({ editedImage: editedImageResult.localUrl, prompt })
-                }
-              ]
-            }
-          ]
-        });
-      } else {
-        // Fallback: show URL if no Slack file
-        await respond({
-          text: `🖼️ Image URL: ${editedImageResult.localUrl}`,
-          response_type: 'ephemeral',
-          blocks: [
-            {
-              type: 'actions',
-              elements: [
-                {
-                  type: 'button',
-                  text: {
-                    type: 'plain_text',
-                    text: '✅ Apply to Profile'
-                  },
-                  style: 'primary',
-                  action_id: 'approve_edit_message',
-                  value: JSON.stringify({ editedImage: editedImageResult.localUrl, prompt })
-                }
-              ]
-            }
-          ]
-        });
-      }
+      // Send single comprehensive response
+      await respond({
+        text: `✅ *Image processing completed successfully!*\n\n*Prompt used:* "${prompt}"`,
+        response_type: 'ephemeral',
+        blocks: responseBlocks
+      });
       
     } catch (error) {
       console.error('Error processing direct prompt:', error);
