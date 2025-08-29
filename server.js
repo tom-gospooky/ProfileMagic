@@ -64,14 +64,23 @@ app.get('/debug', (req, res) => {
   });
 });
 
-// Static files under /files/*
-app.use('/files', express.static(TEMP_DIR, {
-  fallthrough: true, // Allow 404s to be handled by next middleware
-  setHeaders: (res) => {
-    res.setHeader('Cache-Control', 'public, max-age=300, immutable');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-  }
-}));
+// Static files under /files/* with proper error handling
+app.use('/files', (req, res, next) => {
+  express.static(TEMP_DIR, {
+    fallthrough: true,
+    setHeaders: (res) => {
+      res.setHeader('Cache-Control', 'public, max-age=300, immutable');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+    }
+  })(req, res, (err) => {
+    if (err) {
+      // Handle file system errors gracefully
+      console.log(`File access error: ${err.code} for ${req.path}`);
+      return res.status(404).json({ error: 'File not found', path: req.path });
+    }
+    next();
+  });
+});
 
 // Handle 404s for missing files specifically  
 app.use('/files', (req, res) => {
