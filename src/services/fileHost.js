@@ -26,14 +26,17 @@ function startFileServer() {
       fs.mkdirSync(tempDir, { recursive: true });
     }
     
-    // Add middleware to handle file serving errors gracefully
-    app.use('/files', (req, res, next) => {
-      const filePath = path.join(tempDir, req.path);
-      if (fs.existsSync(filePath)) {
-        express.static(tempDir)(req, res, next);
-      } else {
-        res.status(404).json({ error: 'File not found', path: req.path });
+    // Add middleware to handle file serving with proper error handling
+    app.use('/files', express.static(tempDir, {
+      fallthrough: false,
+      setHeaders: (res, path) => {
+        res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
       }
+    }));
+    
+    // Handle 404s for missing files
+    app.use('/files', (req, res) => {
+      res.status(404).json({ error: 'File not found', path: req.path });
     });
     
     // Health check endpoint

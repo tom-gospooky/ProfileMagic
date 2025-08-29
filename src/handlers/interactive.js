@@ -1,6 +1,7 @@
 const { getPreset } = require('../utils/presets');
 const slackService = require('../services/slack');
 const imageService = require('../services/image');
+const axios = require('axios');
 
 async function handlePresetSelection({ ack, body, view, client }) {
   await ack();
@@ -224,32 +225,41 @@ async function handleApproveMessage({ ack, body, client }) {
     // Update the user's profile photo
     await slackService.updateProfilePhoto(client, userId, editedImageUrl);
     
-    // Send success response as DM - use chat.postEphemeral instead of postMessage
-    await client.chat.postEphemeral({
-      channel: userId,
-      user: userId,
-      text: `✅ *Success! Your profile photo has been updated!* 🎉\n\n*Applied transformation:* "${prompt}"\n\nYour new profile photo is now live across Slack.`
-    });
+    // Show success message in current context (no DM required)
+    if (body.response_url) {
+      // For interactive components, use response_url if available
+      const axios = require('axios');
+      await axios.post(body.response_url, {
+        text: `✅ *Success! Your profile photo has been updated!* 🎉\n\n*Applied transformation:* "${prompt}"\n\nYour new profile photo is now live across Slack.`,
+        response_type: 'ephemeral'
+      });
+    }
 
   } catch (error) {
     console.error('Edit approval error:', error.message);
     
-    await client.chat.postEphemeral({
-      channel: userId,
-      user: userId,
-      text: '❌ *Failed to update your profile photo.*\n\nPlease try again or contact your workspace admin if the problem persists.'
-    });
+    // Show error message in current context (no DM required)
+    if (body.response_url) {
+      const axios = require('axios');
+      await axios.post(body.response_url, {
+        text: '❌ *Failed to update your profile photo.*\n\nPlease try again or contact your workspace admin if the problem persists.',
+        response_type: 'ephemeral'
+      });
+    }
   }
 }
 
 async function handleRetryMessage({ ack, body, client }) {
   await ack();
 
-  await client.chat.postEphemeral({
-    channel: body.user.id,
-    user: body.user.id,
-    text: '🔄 *Want to try a different transformation?*\n\nUse `/boo your custom prompt` to create a new edit with a different prompt!'
-  });
+  // Show retry message in current context (no DM required)
+  if (body.response_url) {
+    const axios = require('axios');
+    await axios.post(body.response_url, {
+      text: '🔄 *Want to try a different transformation?*\n\nUse `/boo your custom prompt` to create a new edit with a different prompt!',
+      response_type: 'ephemeral'
+    });
+  }
 }
 
 module.exports = {
