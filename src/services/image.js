@@ -114,6 +114,10 @@ async function editImage(imageUrl, prompt, client, userId) {
     // Initialize Gemini AI
     const ai = new GoogleGenAI(process.env.API_KEY);
     
+    // Debug: log available methods
+    console.log('GoogleGenAI instance methods:', Object.getOwnPropertyNames(ai));
+    console.log('GoogleGenAI prototype methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(ai)));
+    
     // Download the original image
     const imageBuffer = await slackService.downloadImage(imageUrl);
     console.log(`Downloaded original image, size: ${imageBuffer.length} bytes`);
@@ -135,15 +139,30 @@ async function editImage(imageUrl, prompt, client, userId) {
       imageSize: imageBuffer.length
     });
     
-    // Use the correct API method for @google/genai package
-    const response = await ai.generateContent({
-      model: process.env.GEMINI_MODEL || 'gemini-2.5-flash-image-preview',
-      contents: [
-        {
-          parts: [originalImagePart, textPart]
-        }
-      ]
-    });
+    // Try the most common API patterns for @google/genai
+    let response;
+    try {
+      // Pattern 1: Direct model access
+      const model = ai.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash-image-preview' });
+      console.log('Using getGenerativeModel pattern');
+      response = await model.generateContent([originalImagePart, textPart]);
+    } catch (error1) {
+      console.log('getGenerativeModel failed, trying direct generateContent:', error1.message);
+      try {
+        // Pattern 2: Direct generateContent
+        response = await ai.generateContent({
+          model: process.env.GEMINI_MODEL || 'gemini-2.5-flash-image-preview',
+          contents: [{ parts: [originalImagePart, textPart] }]
+        });
+      } catch (error2) {
+        console.log('Direct generateContent failed, trying models property:', error2.message);
+        // Pattern 3: Models property
+        response = await ai.models.generateContent({
+          model: process.env.GEMINI_MODEL || 'gemini-2.5-flash-image-preview',
+          contents: [{ parts: [originalImagePart, textPart] }]
+        });
+      }
+    }
     
     console.log('Received response from Gemini API');
     return await handleApiResponse(response, 'edit', client, userId);
