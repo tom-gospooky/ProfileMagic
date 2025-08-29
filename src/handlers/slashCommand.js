@@ -53,26 +53,71 @@ async function processDirectPrompt(client, userId, prompt, triggerId, respond) {
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: `✅ *Image processing completed successfully!*\n\n*Prompt used:* "${prompt}"\n\n*Image URLs:*\n• Original: ${currentPhoto}\n• Edited: ${editedImage}\n\n_Note: Images cannot be previewed in this development setup, but have been generated successfully._`
+              text: `✅ *Image processing completed successfully!*\n\n*Prompt used:* "${prompt}"`
             }
-          },
-          {
-            type: 'actions',
-            elements: [
-              {
-                type: 'button',
-                text: {
-                  type: 'plain_text',
-                  text: '✅ Apply to Profile'
-                },
-                style: 'primary',
-                action_id: 'approve_edit_message',
-                value: JSON.stringify({ editedImage, prompt })
-              }
-            ]
           }
         ]
       });
+
+      // Add image block if we have a successful result
+      if (editedImageResult.fileId) {
+        // Add image block using Slack file
+        await respond({
+          text: '🖼️ Here\'s your edited image:',
+          response_type: 'ephemeral',
+          blocks: [
+            {
+              type: 'image',
+              title: {
+                type: 'plain_text',
+                text: 'AI-Edited Profile Photo'
+              },
+              slack_file: {
+                id: editedImageResult.fileId
+              },
+              alt_text: 'AI-edited profile photo'
+            },
+            {
+              type: 'actions',
+              elements: [
+                {
+                  type: 'button',
+                  text: {
+                    type: 'plain_text',
+                    text: '✅ Apply to Profile'
+                  },
+                  style: 'primary',
+                  action_id: 'approve_edit_message',
+                  value: JSON.stringify({ editedImage: editedImageResult.localUrl, prompt })
+                }
+              ]
+            }
+          ]
+        });
+      } else {
+        // Fallback: show URL if no Slack file
+        await respond({
+          text: `🖼️ Image URL: ${editedImageResult.localUrl}`,
+          response_type: 'ephemeral',
+          blocks: [
+            {
+              type: 'actions',
+              elements: [
+                {
+                  type: 'button',
+                  text: {
+                    type: 'plain_text',
+                    text: '✅ Apply to Profile'
+                  },
+                  style: 'primary',
+                  action_id: 'approve_edit_message',
+                  value: JSON.stringify({ editedImage: editedImageResult.localUrl, prompt })
+                }
+              ]
+            }
+          ]
+        });
+      }
       
     } catch (error) {
       console.error('Error processing direct prompt:', error);
