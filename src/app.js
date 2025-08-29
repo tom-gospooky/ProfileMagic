@@ -57,10 +57,10 @@ app.error((error) => {
       console.log(`📡 BASE_URL: ${process.env.BASE_URL}`);
     }
     
-    // Start file hosting server
-    if (!isProduction) console.log('📁 Starting file hosting server...');
+    // Start file hosting server (always log this critical step)
+    console.log('📁 Starting file hosting server...');
     const filePort = await fileHost.startFileServer();
-    if (!isProduction) console.log(`✅ File server running on port ${filePort}`);
+    console.log(`✅ File server running on port ${filePort}`);
     
     // Start Slack app in Socket Mode (no port needed)
     if (!isProduction) console.log('⚡ Starting Slack app...');

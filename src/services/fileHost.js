@@ -61,9 +61,10 @@ function startFileServer() {
     
     fileServer = app.listen(PORT, '0.0.0.0', (err) => {
       if (err) {
+        console.error(`File server failed to start:`, err);
         reject(err);
       } else {
-        if (!isProduction) console.log(`File server running on port ${PORT}`);
+        console.log(`File server listening on 0.0.0.0:${PORT}`);
         resolve(PORT);
       }
     });
