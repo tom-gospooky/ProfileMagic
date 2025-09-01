@@ -3,6 +3,7 @@ const slackService = require('../services/slack');
 const imageService = require('../services/image');
 const axios = require('axios');
 const { getOAuthUrl } = require('../services/fileServer');
+const { showExtendedModal } = require('./extendedCommand');
 
 async function handlePresetSelection({ ack, body, view, client }) {
   await ack();
@@ -670,6 +671,192 @@ async function handleReferenceImageSubmission({ ack, body, view, client }) {
   }
 }
 
+async function handleApproveExtended({ ack, body, client }) {
+  await ack();
+
+  const userId = body.user.id;
+  const teamId = body.team.id;
+  let editedImageUrl;
+  let prompt;
+  let referenceCount = 0;
+
+  try {
+    // Parse the JSON value that contains editedImage, prompt, and reference count
+    const actionValue = JSON.parse(body.actions[0].value);
+    editedImageUrl = actionValue.editedImage;
+    prompt = actionValue.prompt;
+    referenceCount = actionValue.referenceCount || 0;
+  } catch (parseError) {
+    console.error('Failed to parse extended action value:', parseError);
+    return;
+  }
+
+  const isProduction = process.env.NODE_ENV === 'production';
+  try {
+    if (!isProduction) console.log(`Updating profile photo for user ${userId} (extended)`);
+    
+    // Update the user's profile photo
+    await slackService.updateProfilePhoto(client, userId, teamId, editedImageUrl);
+    
+    // Close modal and show success message
+    await client.views.update({
+      view_id: body.view.id,
+      view: {
+        type: 'modal',
+        title: {
+          type: 'plain_text',
+          text: 'Success! ✅'
+        },
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `*Your extended profile edit has been applied!* 🎉\n\n*Prompt:* "${prompt}"\n*Reference images used:* ${referenceCount}\n\nYour new profile photo is now live across Slack.`
+            }
+          }
+        ],
+        close: {
+          type: 'plain_text',
+          text: 'Done'
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Extended edit approval error:', error.message);
+    
+    // Handle authorization error
+    if (error.message === 'USER_NOT_AUTHORIZED') {
+      const authUrl = getOAuthUrl(userId, teamId);
+      
+      await client.views.update({
+        view_id: body.view.id,
+        view: {
+          type: 'modal',
+          title: {
+            type: 'plain_text',
+            text: 'Authorization Required 🔐'
+          },
+          blocks: [
+            {
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: '*ProfileMagic needs permission to update your profile photo!*\n\nClick the button below to authorize the app.'
+              }
+            },
+            {
+              type: 'actions',
+              elements: [
+                {
+                  type: 'button',
+                  text: {
+                    type: 'plain_text',
+                    text: '🔗 Authorize ProfileMagic'
+                  },
+                  url: authUrl,
+                  style: 'primary'
+                }
+              ]
+            }
+          ],
+          close: {
+            type: 'plain_text',
+            text: 'Close'
+          }
+        }
+      });
+    } else {
+      await client.views.update({
+        view_id: body.view.id,
+        view: {
+          type: 'modal',
+          title: {
+            type: 'plain_text',
+            text: 'Error ❌'
+          },
+          blocks: [
+            {
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: '*Failed to update your profile photo.*\n\nPlease try again or contact your workspace admin if the problem persists.'
+              }
+            }
+          ],
+          close: {
+            type: 'plain_text',
+            text: 'Close'
+          }
+        }
+      });
+    }
+  }
+}
+
+async function handleRetryExtended({ ack, body, client }) {
+  await ack();
+
+  const userId = body.user.id;
+
+  try {
+    // Close current modal and re-open extended modal
+    await client.views.update({
+      view_id: body.view.id,
+      view: {
+        type: 'modal',
+        callback_id: 'retry_extended_modal',
+        title: {
+          type: 'plain_text',
+          text: 'Try Extended Edit Again ✨'
+        },
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '*Want to create a different extended edit?*\n\nClick below to open the extended editor again with new prompts and reference images.'
+            }
+          },
+          {
+            type: 'actions',
+            elements: [
+              {
+                type: 'button',
+                text: {
+                  type: 'plain_text',
+                  text: '🎨 Open Extended Editor'
+                },
+                style: 'primary',
+                action_id: 'open_extended_modal'
+              }
+            ]
+          }
+        ],
+        close: {
+          type: 'plain_text',
+          text: 'Close'
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Extended retry error:', error);
+  }
+}
+
+async function handleOpenExtendedModal({ ack, body, client }) {
+  await ack();
+
+  const userId = body.user.id;
+
+  try {
+    await showExtendedModal(client, body.trigger_id, '', userId);
+  } catch (error) {
+    console.error('Error opening extended modal:', error);
+  }
+}
+
 module.exports = {
   handlePresetSelection,
   handlePreviewAction,
@@ -680,5 +867,8 @@ module.exports = {
   handleApproveMessage,
   handleRetryMessage,
   handleReferenceImageModal,
-  handleReferenceImageSubmission
+  handleReferenceImageSubmission,
+  handleApproveExtended,
+  handleRetryExtended,
+  handleOpenExtendedModal
 };

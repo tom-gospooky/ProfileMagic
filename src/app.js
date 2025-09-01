@@ -2,6 +2,7 @@ require('dotenv').config();
 const { App, SocketModeReceiver } = require('@slack/bolt');
 const slashCommandHandler = require('./handlers/slashCommand');
 const interactiveHandler = require('./handlers/interactive');
+const extendedCommandHandler = require('./handlers/extendedCommand');
 const fileServer = require('./services/fileServer');
 
 // Validate required environment variables
@@ -35,13 +36,15 @@ const app = new App({
   receiver
 });
 
-// Slash command handler
+// Slash command handlers
 app.command('/boo', slashCommandHandler);
+app.command('/boo-ext', extendedCommandHandler.handleExtendedSlashCommand);
 
 // Interactive component handlers
 app.view('preset_selection_modal', interactiveHandler.handlePresetSelection);
 app.view('preview_modal', interactiveHandler.handlePreviewAction);
 app.view('reference_image_modal', interactiveHandler.handleReferenceImageSubmission);
+app.view('boo_ext_modal', extendedCommandHandler.handleExtendedModalSubmission);
 app.action('select_preset', interactiveHandler.handlePresetSelect);
 app.action('approve_edit', interactiveHandler.handleApprove);
 app.action('retry_edit', interactiveHandler.handleRetry);
@@ -49,6 +52,9 @@ app.action('cancel_edit', interactiveHandler.handleCancel);
 app.action('approve_edit_message', interactiveHandler.handleApproveMessage);
 app.action('retry_edit_message', interactiveHandler.handleRetryMessage);
 app.action('use_reference_image', interactiveHandler.handleReferenceImageModal);
+app.action('approve_ext_edit', interactiveHandler.handleApproveExtended);
+app.action('retry_ext_edit', interactiveHandler.handleRetryExtended);
+app.action('open_extended_modal', interactiveHandler.handleOpenExtendedModal);
 
 // Remove intrusive file_shared event handler - using modal approach instead
 
