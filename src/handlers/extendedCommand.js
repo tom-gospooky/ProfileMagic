@@ -49,7 +49,7 @@ async function handleExtendedSlashCommand({ command, ack, respond, client, body 
     }
 
     // User is authorized, show the extended modal
-    await showExtendedModal(client, body.trigger_id, initialPrompt, userId);
+    await showExtendedModal(client, body.trigger_id, initialPrompt, userId, body.channel_id);
     
   } catch (error) {
     console.error('Error in extended slash command:', error);
@@ -60,7 +60,7 @@ async function handleExtendedSlashCommand({ command, ack, respond, client, body 
   }
 }
 
-async function showExtendedModal(client, triggerId, initialPrompt = '', userId) {
+async function showExtendedModal(client, triggerId, initialPrompt = '', userId, channelId) {
   try {
     const modal = {
       type: 'modal',
@@ -77,6 +77,7 @@ async function showExtendedModal(client, triggerId, initialPrompt = '', userId) 
         type: 'plain_text',
         text: 'Cancel'
       },
+      private_metadata: JSON.stringify({ channelId }),
       blocks: [
         {
           type: 'input',
@@ -170,6 +171,15 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
   const userId = body.user.id;
   const teamId = body.team.id;
   const isProduction = process.env.NODE_ENV === 'production';
+  
+  // Get the original channel ID from private metadata
+  let originalChannelId;
+  try {
+    const metadata = JSON.parse(view.private_metadata || '{}');
+    originalChannelId = metadata.channelId;
+  } catch (e) {
+    originalChannelId = teamId; // fallback to team
+  }
 
   try {
     // Extract form data
@@ -217,12 +227,25 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
       response_action: 'clear'
     });
 
-    // Send processing message to user
-    const processingMessage = await client.chat.postEphemeral({
-      channel: body.user.id, // Send to user DM
-      user: userId,
-      text: `🎨 *Processing your extended edit...*\n\n*Prompt:* "${prompt}"\n*Using profile photo:* ${useProfilePhoto ? 'Yes ✓' : 'No'}\n*Reference images:* ${uploadedFiles.length}\n\nThis may take a moment!`
-    });
+    // Send processing message to user - try DM first, fallback to triggering channel
+    let processingMessage;
+    try {
+      processingMessage = await client.chat.postMessage({
+        channel: userId,
+        text: `🎨 *Processing your extended edit...*\n\n*Prompt:* "${prompt}"\n*Using profile photo:* ${useProfilePhoto ? 'Yes ✓' : 'No'}\n*Reference images:* ${uploadedFiles.length}\n\nThis may take a moment!`
+      });
+    } catch (dmError) {
+      if (dmError.data?.error === 'messages_tab_disabled') {
+        // User has DMs disabled, send ephemeral in the original channel instead
+        processingMessage = await client.chat.postEphemeral({
+          channel: originalChannelId,
+          user: userId,
+          text: `🎨 *Processing your extended edit...*\n\n*Prompt:* "${prompt}"\n*Using profile photo:* ${useProfilePhoto ? 'Yes ✓' : 'No'}\n*Reference images:* ${uploadedFiles.length}\n\nThis may take a moment!`
+        });
+      } else {
+        throw dmError;
+      }
+    }
 
     // Get current profile photo if needed
     let currentPhoto = null;
@@ -230,11 +253,21 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
       currentPhoto = await slackService.getCurrentProfilePhoto(client, userId);
       
       if (!currentPhoto) {
-        await client.chat.update({
-          channel: body.user.id,
-          ts: processingMessage.ts,
-          text: '❌ Could not fetch your current profile photo. Please make sure you have a profile photo set.'
-        });
+        const errorText = '❌ Could not fetch your current profile photo. Please make sure you have a profile photo set.';
+        try {
+          await client.chat.update({
+            channel: processingMessage.channel,
+            ts: processingMessage.ts,
+            text: errorText
+          });
+        } catch (updateError) {
+          // If we can't update (e.g., ephemeral message), send a new message
+          await client.chat.postEphemeral({
+            channel: originalChannelId,
+            user: userId,
+            text: errorText
+          });
+        }
         return;
       }
     }
@@ -336,12 +369,22 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
     });
 
     // Update the processing message with results
-    await client.chat.update({
-      channel: body.user.id,
-      ts: processingMessage.ts,
-      text: `✅ *Extended edit complete!*`,
-      blocks: successBlocks
-    });
+    try {
+      await client.chat.update({
+        channel: processingMessage.channel,
+        ts: processingMessage.ts,
+        text: `✅ *Extended edit complete!*`,
+        blocks: successBlocks
+      });
+    } catch (updateError) {
+      // If we can't update (e.g., ephemeral message), send a new message
+      await client.chat.postEphemeral({
+        channel: originalChannelId,
+        user: userId,
+        text: `✅ *Extended edit complete!*`,
+        blocks: successBlocks
+      });
+    }
 
   } catch (error) {
     console.error('Extended modal submission error:', error);
@@ -357,12 +400,24 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
       errorMessage = '🔐 *Authorization required.*\n\nPlease authorize ProfileMagic to update your profile photo.';
     }
 
-    // Send error message to user DM
-    await client.chat.postEphemeral({
-      channel: body.user.id,
-      user: userId,
-      text: errorMessage
-    });
+    // Send error message to user
+    try {
+      await client.chat.postMessage({
+        channel: userId,
+        text: errorMessage
+      });
+    } catch (dmError) {
+      if (dmError.data?.error === 'messages_tab_disabled') {
+        // Send ephemeral message instead
+        await client.chat.postEphemeral({
+          channel: originalChannelId,
+          user: userId,
+          text: errorMessage
+        });
+      } else {
+        console.error('Failed to send error message:', dmError);
+      }
+    }
   }
 }
 
