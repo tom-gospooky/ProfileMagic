@@ -679,6 +679,7 @@ async function handleApproveExtended({ ack, body, client }) {
   let editedImageUrl;
   let prompt;
   let referenceCount = 0;
+  let useProfilePhoto = false;
 
   try {
     // Parse the JSON value that contains editedImage, prompt, and reference count
@@ -686,6 +687,7 @@ async function handleApproveExtended({ ack, body, client }) {
     editedImageUrl = actionValue.editedImage;
     prompt = actionValue.prompt;
     referenceCount = actionValue.referenceCount || 0;
+    useProfilePhoto = actionValue.useProfilePhoto || false;
   } catch (parseError) {
     console.error('Failed to parse extended action value:', parseError);
     return;
@@ -712,7 +714,7 @@ async function handleApproveExtended({ ack, body, client }) {
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: `*Your extended profile edit has been applied!* 🎉\n\n*Prompt:* "${prompt}"\n*Reference images used:* ${referenceCount}\n\nYour new profile photo is now live across Slack.`
+              text: `*Your extended profile edit has been applied!* 🎉\n\n*Prompt:* "${prompt}"\n*Profile photo used:* ${useProfilePhoto ? 'Yes' : 'No'}\n*Reference images used:* ${referenceCount}\n\nYour new profile photo is now live across Slack.`
             }
           }
         ],

@@ -119,57 +119,57 @@ async function showExtendedModal(client, triggerId, initialPrompt = '', userId) 
           type: 'section',
           text: {
             type: 'mrkdwn',
-            text: '*📎 Reference Images (Optional)*\nUpload images to this channel first, then paste their URLs below. These will guide the AI editing process.'
+            text: '*⚙️ Profile Photo Settings*'
+          }
+        },
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: 'Include your current profile photo as the base for editing?'
+          },
+          accessory: {
+            type: 'checkboxes',
+            action_id: 'use_profile_photo',
+            initial_options: [
+              {
+                text: {
+                  type: 'plain_text',
+                  text: 'Use my current profile photo'
+                },
+                value: 'include_profile'
+              }
+            ],
+            options: [
+              {
+                text: {
+                  type: 'plain_text',
+                  text: 'Use my current profile photo'
+                },
+                value: 'include_profile'
+              }
+            ]
+          }
+        },
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: '*📎 Reference Images (Optional)*\nSelect image files to guide the AI editing process.'
           }
         },
         {
           type: 'input',
-          block_id: 'ref_image_1',
+          block_id: 'reference_files',
           element: {
-            type: 'plain_text_input',
-            action_id: 'ref_url_1',
-            placeholder: {
-              type: 'plain_text',
-              text: 'https://files.slack.com/...'
-            }
+            type: 'file_input',
+            action_id: 'ref_files',
+            filetypes: ['jpg', 'jpeg', 'png', 'gif', 'webp'],
+            max_files: 5
           },
           label: {
             type: 'plain_text',
-            text: '🖼️ Reference Image URL #1'
-          },
-          optional: true
-        },
-        {
-          type: 'input',
-          block_id: 'ref_image_2',
-          element: {
-            type: 'plain_text_input',
-            action_id: 'ref_url_2',
-            placeholder: {
-              type: 'plain_text',
-              text: 'https://files.slack.com/...'
-            }
-          },
-          label: {
-            type: 'plain_text',
-            text: '🖼️ Reference Image URL #2'
-          },
-          optional: true
-        },
-        {
-          type: 'input',
-          block_id: 'ref_image_3',
-          element: {
-            type: 'plain_text_input',
-            action_id: 'ref_url_3',
-            placeholder: {
-              type: 'plain_text',
-              text: 'https://files.slack.com/...'
-            }
-          },
-          label: {
-            type: 'plain_text',
-            text: '🖼️ Reference Image URL #3'
+            text: '🖼️ Upload Reference Images'
           },
           optional: true
         },
@@ -178,7 +178,7 @@ async function showExtendedModal(client, triggerId, initialPrompt = '', userId) 
           elements: [
             {
               type: 'mrkdwn',
-              text: '💡 *Tip:* Upload images to this channel, right-click them, and copy the link to get the URL.'
+              text: '💡 *Tip:* You can upload up to 5 reference images. Supported formats: JPG, PNG, GIF, WebP.'
             }
           ]
         }
@@ -220,9 +220,10 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
   try {
     // Extract form data
     const prompt = view.state.values.prompt_input.prompt_text.value?.trim();
-    const refUrl1 = view.state.values.ref_image_1.ref_url_1.value?.trim();
-    const refUrl2 = view.state.values.ref_image_2.ref_url_2.value?.trim();
-    const refUrl3 = view.state.values.ref_image_3.ref_url_3.value?.trim();
+    const useProfilePhoto = view.state.values.use_profile_photo?.selected_options?.some(
+      option => option.value === 'include_profile'
+    ) || false;
+    const uploadedFiles = view.state.values.reference_files?.ref_files?.files || [];
 
     if (!prompt) {
       // Show error - prompt is required
@@ -253,6 +254,10 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
     }
 
     // Show processing message
+    const processingText = useProfilePhoto ? 
+      '*🎨 Creating your extended edit with your profile photo...*' : 
+      '*🎨 Creating your extended edit...*';
+    
     await client.views.update({
       view_id: body.view.id,
       view: {
@@ -266,14 +271,14 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: '*🎨 Creating your extended edit...*\n\nThis may take a moment with multiple reference images!'
+              text: `${processingText}\n\nThis may take a moment with multiple reference images!`
             }
           },
           {
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: `*Prompt:* "${prompt}"`
+              text: `*Prompt:* "${prompt}"\n*Using profile photo:* ${useProfilePhoto ? 'Yes ✓' : 'No'}\n*Reference images:* ${uploadedFiles.length}`
             }
           }
         ],
@@ -284,52 +289,86 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
       }
     });
 
-    // Collect reference images
-    const referenceImages = [refUrl1, refUrl2, refUrl3].filter(url => 
-      url && (url.includes('slack.com') || url.includes('files.slack.com'))
-    );
-
-    // Get current profile photo
-    const currentPhoto = await slackService.getCurrentProfilePhoto(client, userId);
-    
-    if (!currentPhoto) {
-      await client.views.update({
-        view_id: body.view.id,
-        view: {
-          type: 'modal',
-          title: {
-            type: 'plain_text',
-            text: 'Error ❌'
-          },
-          blocks: [
-            {
-              type: 'section',
-              text: {
-                type: 'mrkdwn',
-                text: '*Could not fetch your current profile photo.*\n\nPlease make sure you have a profile photo set.'
+    // Get current profile photo if needed
+    let currentPhoto = null;
+    if (useProfilePhoto) {
+      currentPhoto = await slackService.getCurrentProfilePhoto(client, userId);
+      
+      if (!currentPhoto) {
+        await client.views.update({
+          view_id: body.view.id,
+          view: {
+            type: 'modal',
+            title: {
+              type: 'plain_text',
+              text: 'Error ❌'
+            },
+            blocks: [
+              {
+                type: 'section',
+                text: {
+                  type: 'mrkdwn',
+                  text: '*Could not fetch your current profile photo.*\n\nPlease make sure you have a profile photo set, or uncheck "Use my current profile photo".'
+                }
               }
+            ],
+            close: {
+              type: 'plain_text',
+              text: 'Close'
             }
-          ],
-          close: {
-            type: 'plain_text',
-            text: 'Close'
           }
-        }
-      });
-      return;
+        });
+        return;
+      }
     }
 
-    // Process the edit with reference images
+    // Collect reference image URLs from uploaded files
+    const referenceImages = uploadedFiles.map(file => file.url_private).filter(Boolean);
+
+    // Process the edit with or without profile photo
     let editedImageResult;
     if (referenceImages.length > 0) {
-      // Use the first reference image for now (can be extended later)
-      editedImageResult = await imageService.editImage(currentPhoto, prompt, client, userId, referenceImages[0]);
+      // Use the first reference image (can be extended later for multiple images)
+      if (useProfilePhoto && currentPhoto) {
+        editedImageResult = await imageService.editImage(currentPhoto, prompt, client, userId, referenceImages[0]);
+      } else {
+        // Edit the reference image directly without profile photo
+        editedImageResult = await imageService.editImage(referenceImages[0], prompt, client, userId);
+      }
     } else {
-      editedImageResult = await imageService.editImage(currentPhoto, prompt, client, userId);
+      if (useProfilePhoto && currentPhoto) {
+        editedImageResult = await imageService.editImage(currentPhoto, prompt, client, userId);
+      } else {
+        // No profile photo and no reference images - show error
+        await client.views.update({
+          view_id: body.view.id,
+          view: {
+            type: 'modal',
+            title: {
+              type: 'plain_text',
+              text: 'Error ❌'
+            },
+            blocks: [
+              {
+                type: 'section',
+                text: {
+                  type: 'mrkdwn',
+                  text: '*No images to process.*\n\nPlease either:\n• Check "Use my current profile photo", or\n• Upload reference images to edit'
+                }
+              }
+            ],
+            close: {
+              type: 'plain_text',
+              text: 'Close'
+            }
+          }
+        });
+        return;
+      }
     }
 
     // Show success with results
-    await showExtendedResults(client, body.view.id, currentPhoto, editedImageResult, prompt, referenceImages);
+    await showExtendedResults(client, body.view.id, currentPhoto, editedImageResult, prompt, referenceImages, useProfilePhoto);
 
   } catch (error) {
     console.error('Extended modal submission error:', error);
@@ -368,7 +407,7 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
   }
 }
 
-async function showExtendedResults(client, viewId, originalImage, editedImageResult, prompt, referenceImages) {
+async function showExtendedResults(client, viewId, originalImage, editedImageResult, prompt, referenceImages, useProfilePhoto) {
   const successBlocks = [
     {
       type: 'section',
@@ -376,19 +415,15 @@ async function showExtendedResults(client, viewId, originalImage, editedImageRes
         type: 'mrkdwn',
         text: `✅ *Extended Edit Complete!*\n\n*Prompt:* "${prompt}"`
       }
-    }
-  ];
-
-  // Show reference images info if any were used
-  if (referenceImages.length > 0) {
-    successBlocks.push({
+    },
+    {
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: `*Reference Images Used:* ${referenceImages.length}`
+        text: `*Settings:*\n• Profile photo used: ${useProfilePhoto ? 'Yes ✓' : 'No'}\n• Reference images: ${referenceImages.length}`
       }
-    });
-  }
+    }
+  ];
 
   successBlocks.push({
     type: 'section',
@@ -449,7 +484,8 @@ async function showExtendedResults(client, viewId, originalImage, editedImageRes
         value: JSON.stringify({ 
           editedImage: editedImageResult.localUrl, 
           prompt,
-          referenceCount: referenceImages.length 
+          referenceCount: referenceImages.length,
+          useProfilePhoto
         })
       },
       {
