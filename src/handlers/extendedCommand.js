@@ -236,9 +236,10 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
       });
     } catch (dmError) {
       if (dmError.data?.error === 'messages_tab_disabled') {
-        // User has DMs disabled, send ephemeral in the original channel instead
+        // User has DMs disabled, send ephemeral message to user's DM channel instead
+        // This creates an ephemeral message visible only to the user
         processingMessage = await client.chat.postEphemeral({
-          channel: originalChannelId,
+          channel: userId,
           user: userId,
           text: `🎨 *Processing your extended edit...*\n\n*Prompt:* "${prompt}"\n*Using profile photo:* ${useProfilePhoto ? 'Yes ✓' : 'No'}\n*Reference images:* ${uploadedFiles.length}\n\nThis may take a moment!`
         });
@@ -263,7 +264,7 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
         } catch (updateError) {
           // If we can't update (e.g., ephemeral message), send a new message
           await client.chat.postEphemeral({
-            channel: originalChannelId,
+            channel: userId,
             user: userId,
             text: errorText
           });
@@ -379,7 +380,7 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
     } catch (updateError) {
       // If we can't update (e.g., ephemeral message), send a new message
       await client.chat.postEphemeral({
-        channel: originalChannelId,
+        channel: userId,
         user: userId,
         text: `✅ *Extended edit complete!*`,
         blocks: successBlocks
@@ -410,7 +411,7 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
       if (dmError.data?.error === 'messages_tab_disabled') {
         // Send ephemeral message instead
         await client.chat.postEphemeral({
-          channel: originalChannelId,
+          channel: userId,
           user: userId,
           text: errorMessage
         });
