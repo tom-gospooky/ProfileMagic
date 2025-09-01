@@ -15,16 +15,25 @@ You can find these values in your Slack app configuration under **Basic Informat
 
 ## Slack App Configuration
 
-### 1. Add User Scopes
+### 1. Add Bot Scopes
 
 1. Go to your Slack app at https://api.slack.com/apps
 2. Navigate to **OAuth & Permissions** in the sidebar
-3. Scroll down to **User Token Scopes** (not Bot Token Scopes)
+3. Scroll down to **Bot Token Scopes**
 4. Add these scopes:
+   - `commands` - For slash commands
+   - `chat:write` - For sending messages
+   - `files:read` - For reading uploaded files (required for /boo-ext file picker)
+
+### 2. Add User Scopes
+
+1. Still in **OAuth & Permissions**
+2. Scroll down to **User Token Scopes** (not Bot Token Scopes)
+3. Add these scopes:
    - `users.profile:read` - To read current profile photos
    - `users.profile:write` - To update profile photos
 
-### 2. Add Redirect URL
+### 3. Add Redirect URL
 
 1. Still in **OAuth & Permissions**
 2. Scroll up to **Redirect URLs**
@@ -34,9 +43,9 @@ You can find these values in your Slack app configuration under **Basic Informat
    ```
    Replace `your-app-url.com` with your actual Railway/deployment URL.
 
-### 3. Reinstall the App
+### 4. Reinstall the App
 
-After adding the user scopes:
+After adding the bot scopes and user scopes:
 1. Click **Reinstall to Workspace** button
 2. You'll see the new permission requests for user scopes
 3. Authorize the app
