@@ -56,6 +56,9 @@ app.action('approve_ext_edit', interactiveHandler.handleApproveExtended);
 app.action('retry_ext_edit', interactiveHandler.handleRetryExtended);
 app.action('open_extended_modal', interactiveHandler.handleOpenExtendedModal);
 
+// Message shortcut handlers
+app.shortcut('banana', interactiveHandler.handleMessageShortcut);
+
 // Remove intrusive file_shared event handler - using modal approach instead
 
 // Error handler

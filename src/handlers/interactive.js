@@ -859,6 +859,226 @@ async function handleOpenExtendedModal({ ack, body, client }) {
   }
 }
 
+async function handleMessageShortcut({ ack, shortcut, client }) {
+  await ack();
+
+  const userId = shortcut.user.id;
+  const messageTs = shortcut.message_ts;
+  const channelId = shortcut.channel.id;
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  if (!isProduction) {
+    console.log(`Message shortcut triggered by user ${userId} on message ${messageTs}`);
+  }
+
+  try {
+    // Get the message content
+    const messageInfo = await client.conversations.history({
+      channel: channelId,
+      latest: messageTs,
+      limit: 1,
+      inclusive: true
+    });
+
+    if (!messageInfo.messages || messageInfo.messages.length === 0) {
+      await client.chat.postEphemeral({
+        channel: channelId,
+        user: userId,
+        text: '❌ Could not find the selected message. Please try again.'
+      });
+      return;
+    }
+
+    const message = messageInfo.messages[0];
+    let prompt = '';
+    let images = [];
+
+    // Extract text as prompt
+    if (message.text) {
+      prompt = message.text.trim();
+    }
+
+    // Extract images from message files
+    if (message.files) {
+      for (const file of message.files) {
+        if (file.mimetype && file.mimetype.startsWith('image/')) {
+          images.push({
+            url: file.url_private,
+            name: file.name || 'image',
+            id: file.id
+          });
+        }
+      }
+    }
+
+    // Check for user profile photo as fallback if no images
+    let useProfilePhoto = false;
+    if (images.length === 0) {
+      const currentPhoto = await slackService.getCurrentProfilePhoto(client, userId);
+      if (currentPhoto) {
+        images.push({
+          url: currentPhoto,
+          name: 'profile_photo',
+          id: 'profile'
+        });
+        useProfilePhoto = true;
+      }
+    }
+
+    // Validate we have content to work with
+    if (images.length === 0) {
+      await client.chat.postEphemeral({
+        channel: channelId,
+        user: userId,
+        text: '❌ No images found in the selected message and no profile photo available. Please select a message with images or set a profile photo first.'
+      });
+      return;
+    }
+
+    if (!prompt || prompt.length === 0) {
+      await client.chat.postEphemeral({
+        channel: channelId,
+        user: userId,
+        text: '❌ No text found in the selected message to use as a prompt. Please select a message with text that describes how you want to edit the image.'
+      });
+      return;
+    }
+
+    if (!isProduction) {
+      console.log(`Processing ${images.length} images with prompt: "${prompt}"`);
+      console.log(`Using profile photo: ${useProfilePhoto}`);
+    }
+
+    // Process the first image with the prompt
+    const imageToEdit = images[0];
+    const referenceImage = images.length > 1 ? images[1] : null;
+
+    // Show processing message
+    const processingMessage = await client.chat.postEphemeral({
+      channel: channelId,
+      user: userId,
+      text: `🎨 *Processing your image with NB shortcut...*\n\n*Prompt:* "${prompt}"\n*Image:* ${imageToEdit.name}\n${referenceImage ? `*Reference:* ${referenceImage.name}` : ''}\n\nThis may take a moment!`
+    });
+
+    try {
+      // Edit the image
+      const editedResult = await imageService.editImage(
+        imageToEdit.url, 
+        prompt, 
+        client, 
+        userId, 
+        referenceImage ? referenceImage.url : null
+      );
+
+      // Create success message with before/after
+      const successBlocks = [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `✅ *Image edited with NB shortcut!* 🎉\n\n*Prompt:* "${prompt}"\n*Source:* ${useProfilePhoto ? 'Profile photo' : imageToEdit.name}\n${referenceImage ? `*Reference:* ${referenceImage.name}` : ''}`
+          }
+        },
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: '*Result:*'
+          }
+        }
+      ];
+
+      // Add the edited image
+      if (editedResult.fileId) {
+        successBlocks.push({
+          type: 'image',
+          title: {
+            type: 'plain_text',
+            text: '✨ AI-Edited Image'
+          },
+          slack_file: {
+            id: editedResult.fileId
+          },
+          alt_text: 'AI-edited image from message shortcut'
+        });
+      } else if (editedResult.localUrl) {
+        successBlocks.push({
+          type: 'image',
+          title: {
+            type: 'plain_text',
+            text: '✨ AI-Edited Image'
+          },
+          image_url: editedResult.localUrl,
+          alt_text: 'AI-edited image from message shortcut'
+        });
+      }
+
+      // Add action buttons for profile photo update
+      successBlocks.push({
+        type: 'actions',
+        elements: [
+          {
+            type: 'button',
+            text: {
+              type: 'plain_text',
+              text: '✅ Set as Profile Picture'
+            },
+            style: 'primary',
+            action_id: 'approve_edit_message',
+            value: JSON.stringify({ 
+              editedImage: editedResult.localUrl, 
+              prompt: prompt 
+            })
+          },
+          {
+            type: 'button',
+            text: {
+              type: 'plain_text',
+              text: '🔄 Try Different Edit'
+            },
+            action_id: 'retry_edit_message'
+          }
+        ]
+      });
+
+      // Update the processing message with results
+      await client.chat.update({
+        channel: channelId,
+        ts: processingMessage.ts,
+        text: `✅ *Image edited with NB shortcut!*`,
+        blocks: successBlocks
+      });
+
+    } catch (editError) {
+      console.error('Image editing error:', editError.message);
+      
+      let errorMessage = '❌ Failed to edit your image. Please try again with a different prompt.';
+      
+      // Handle specific error types
+      if (editError.message === 'CONTENT_BLOCKED') {
+        errorMessage = `🚫 **Content Blocked**\n\n${editError.userMessage}\n\n*Try different prompts or images.*`;
+      } else if (editError.message === 'GENERATION_FAILED') {
+        errorMessage = `⚠️ **Generation Failed**\n\n${editError.userMessage}`;
+      }
+
+      // Update processing message with error
+      await client.chat.update({
+        channel: channelId,
+        ts: processingMessage.ts,
+        text: errorMessage
+      });
+    }
+
+  } catch (error) {
+    console.error('Message shortcut error:', error.message);
+    await client.chat.postEphemeral({
+      channel: channelId,
+      user: userId,
+      text: '❌ Something went wrong processing your shortcut. Please try again.'
+    });
+  }
+}
+
 module.exports = {
   handlePresetSelection,
   handlePreviewAction,
@@ -872,5 +1092,6 @@ module.exports = {
   handleReferenceImageSubmission,
   handleApproveExtended,
   handleRetryExtended,
-  handleOpenExtendedModal
+  handleOpenExtendedModal,
+  handleMessageShortcut
 };
