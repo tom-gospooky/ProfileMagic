@@ -277,7 +277,7 @@ async function handleApproveMessage({ ack, body, client }) {
       // For interactive components, use response_url if available
       const axios = require('axios');
       await axios.post(body.response_url, {
-        text: `✅ *Success! Your profile photo has been updated!* 🎉\n\n*Applied transformation:* "${prompt}"\n\nYour new profile photo is now live across Slack.`,
+        text: `✅ *Profile picture updated!* 🎉`,
         response_type: 'ephemeral'
       });
     }

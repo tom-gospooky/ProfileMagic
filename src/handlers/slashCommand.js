@@ -94,7 +94,7 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
       const editedImageResult = await imageService.editImage(currentPhoto, prompt, client, userId);
       
       // Send single response with before/after images and action buttons  
-      let successText = `✅ *Image processing completed successfully!*\n\n*Prompt used:* "${prompt}"`;
+      let successText = `✅ *Edit complete!*\n\n*Prompt used:* "${prompt}"`;
       
       const responseBlocks = [
         {
@@ -159,7 +159,7 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
             type: 'button',
             text: {
               type: 'plain_text',
-              text: '✅ Set as Profile Picture'
+              text: '✅ Update Profile Picture'
             },
             style: 'primary',
             action_id: 'approve_edit_message',
@@ -172,22 +172,13 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
               text: '🔄 Retry'
             },
             action_id: 'retry_edit_message'
-          },
-          {
-            type: 'button',
-            text: {
-              type: 'plain_text',
-              text: '📎 Use Reference Image'
-            },
-            action_id: 'use_reference_image',
-            value: JSON.stringify({ originalPrompt: prompt, currentPhoto, editedImage: editedImageResult.localUrl })
           }
         ]
       });
 
       // Send single comprehensive response
       await respond({
-        text: `✅ *Image processing completed successfully!*\n\n*Prompt used:* "${prompt}"`,
+        text: `✅ *Edit complete!*\n\n*Prompt used:* "${prompt}"`,
         response_type: 'ephemeral',
         blocks: responseBlocks
       });
@@ -226,7 +217,7 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
   
   // Send immediate acknowledgment
   await respond({
-    text: '🎨 Processing your image transformation... This may take a moment!',
+    text: '🎨 Processing...',
     response_type: 'ephemeral'
   });
 }
@@ -299,7 +290,7 @@ async function showPreviewModal(client, triggerId, originalImage, editedImage, p
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: `*✅ Image processing completed successfully!*\n\n*Prompt used:* "${prompt}"`
+        text: `*✅ Edit complete!*\n\n*Prompt used:* "${prompt}"`
       }
     }
   ];
@@ -350,7 +341,7 @@ async function showPreviewModal(client, triggerId, originalImage, editedImage, p
         type: 'button',
         text: {
           type: 'plain_text',
-          text: '✅ Set as Profile Picture'
+          text: '✅ Update Profile Picture'
         },
         style: 'primary',
         action_id: 'approve_edit',
