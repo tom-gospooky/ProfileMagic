@@ -225,6 +225,17 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
     ) || false;
     const uploadedFiles = view.state.values.reference_files?.ref_files?.files || [];
 
+    // Debug log the uploaded files structure
+    console.log('Uploaded files structure:', JSON.stringify({
+      filesCount: uploadedFiles.length,
+      files: uploadedFiles.map(f => ({
+        id: f.id,
+        name: f.name,
+        url_private_exists: !!f.url_private,
+        filetype: f.filetype
+      }))
+    }, null, 2));
+
     if (!prompt) {
       // Show error - prompt is required
       await client.views.update({
@@ -258,36 +269,44 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
       '*🎨 Creating your extended edit with your profile photo...*' : 
       '*🎨 Creating your extended edit...*';
     
-    await client.views.update({
-      view_id: body.view.id,
-      view: {
-        type: 'modal',
-        title: {
-          type: 'plain_text',
-          text: 'Processing... 🎨'
-        },
-        blocks: [
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: `${processingText}\n\nThis may take a moment with multiple reference images!`
-            }
+    console.log('Attempting to update view with ID:', body.view.id);
+    console.log('Processing text:', processingText);
+    
+    try {
+      await client.views.update({
+        view_id: body.view.id,
+        view: {
+          type: 'modal',
+          title: {
+            type: 'plain_text',
+            text: 'Processing... 🎨'
           },
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: `*Prompt:* "${prompt}"\n*Using profile photo:* ${useProfilePhoto ? 'Yes ✓' : 'No'}\n*Reference images:* ${uploadedFiles.length}`
+          blocks: [
+            {
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: `${processingText}\n\nThis may take a moment with multiple reference images!`
+              }
+            },
+            {
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: `*Prompt:* "${prompt}"\n*Using profile photo:* ${useProfilePhoto ? 'Yes ✓' : 'No'}\n*Reference images:* ${uploadedFiles.length}`
+              }
             }
+          ],
+          close: {
+            type: 'plain_text',
+            text: 'Close'
           }
-        ],
-        close: {
-          type: 'plain_text',
-          text: 'Close'
         }
-      }
-    });
+      });
+    } catch (viewUpdateError) {
+      console.error('Failed to update view to processing state:', viewUpdateError);
+      // Continue processing even if view update fails
+    }
 
     // Get current profile photo if needed
     let currentPhoto = null;
@@ -324,22 +343,12 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
 
     // Collect reference image URLs from uploaded files
     const referenceImages = uploadedFiles.map(file => file.url_private).filter(Boolean);
+    console.log('Reference images extracted:', referenceImages);
 
-    // Process the edit with or without profile photo
-    let editedImageResult;
-    if (referenceImages.length > 0) {
-      // Use the first reference image (can be extended later for multiple images)
-      if (useProfilePhoto && currentPhoto) {
-        editedImageResult = await imageService.editImage(currentPhoto, prompt, client, userId, referenceImages[0]);
-      } else {
-        // Edit the reference image directly without profile photo
-        editedImageResult = await imageService.editImage(referenceImages[0], prompt, client, userId);
-      }
-    } else {
-      if (useProfilePhoto && currentPhoto) {
-        editedImageResult = await imageService.editImage(currentPhoto, prompt, client, userId);
-      } else {
-        // No profile photo and no reference images - show error
+    // Validate we have images to process
+    if (!useProfilePhoto && referenceImages.length === 0) {
+      console.log('No images to process - showing error');
+      try {
         await client.views.update({
           view_id: body.view.id,
           view: {
@@ -363,7 +372,30 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
             }
           }
         });
-        return;
+      } catch (viewError) {
+        console.error('Failed to show no-images error:', viewError);
+      }
+      return;
+    }
+
+    // Process the edit with or without profile photo
+    let editedImageResult;
+    console.log('Processing with:', { useProfilePhoto, referenceImagesCount: referenceImages.length });
+    
+    if (referenceImages.length > 0) {
+      // Use the first reference image (can be extended later for multiple images)
+      if (useProfilePhoto && currentPhoto) {
+        console.log('Processing: profile photo + reference image');
+        editedImageResult = await imageService.editImage(currentPhoto, prompt, client, userId, referenceImages[0]);
+      } else {
+        console.log('Processing: reference image only');
+        // Edit the reference image directly without profile photo
+        editedImageResult = await imageService.editImage(referenceImages[0], prompt, client, userId);
+      }
+    } else {
+      if (useProfilePhoto && currentPhoto) {
+        console.log('Processing: profile photo only');
+        editedImageResult = await imageService.editImage(currentPhoto, prompt, client, userId);
       }
     }
 
@@ -372,38 +404,53 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
 
   } catch (error) {
     console.error('Extended modal submission error:', error);
+    console.error('Error details:', {
+      message: error.message,
+      code: error.code,
+      data: error.data
+    });
     
     let errorMessage = '❌ Failed to process your extended edit. Please try again.';
     
-    if (error.message === 'CONTENT_BLOCKED') {
+    // Handle specific error types
+    if (error.code === 'slack_webapi_platform_error' && error.data?.error === 'not_found') {
+      errorMessage = '❌ *Session expired or modal not found.*\n\nPlease try running `/boo-ext` again to start a new session.';
+    } else if (error.message === 'CONTENT_BLOCKED') {
       errorMessage = `🚫 **Content Blocked**\n\n${error.userMessage}\n\n*Try different prompts or reference images.*`;
     } else if (error.message === 'GENERATION_FAILED') {
       errorMessage = `⚠️ **Generation Failed**\n\n${error.userMessage}`;
+    } else if (error.message === 'USER_NOT_AUTHORIZED') {
+      errorMessage = '🔐 *Authorization required.*\n\nPlease authorize ProfileMagic to update your profile photo.';
     }
 
-    await client.views.update({
-      view_id: body.view.id,
-      view: {
-        type: 'modal',
-        title: {
-          type: 'plain_text',
-          text: 'Error ❌'
-        },
-        blocks: [
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: errorMessage
+    try {
+      await client.views.update({
+        view_id: body.view.id,
+        view: {
+          type: 'modal',
+          title: {
+            type: 'plain_text',
+            text: 'Error ❌'
+          },
+          blocks: [
+            {
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: errorMessage
+              }
             }
+          ],
+          close: {
+            type: 'plain_text',
+            text: 'Close'
           }
-        ],
-        close: {
-          type: 'plain_text',
-          text: 'Close'
         }
-      }
-    });
+      });
+    } catch (viewError) {
+      console.error('Failed to show error message in modal:', viewError);
+      // If we can't update the view, the user will just see the modal disappear
+    }
   }
 }
 
