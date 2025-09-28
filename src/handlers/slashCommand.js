@@ -34,7 +34,7 @@ async function handleSlashCommand({ command, ack, respond, client, body }) {
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: `👆 *Click the button below to authorize:*`
+              text: '👆 *Click the button below to authorize:*'
             },
             accessory: {
               type: 'button',
@@ -292,6 +292,14 @@ async function showFileSelectionModal(client, triggerId, teamId, userId, channel
         element: {
           type: 'checkboxes',
           action_id: 'use_profile_reference',
+          initial_options: [{
+            text: {
+              type: 'plain_text',
+              text: 'Use my current profile photo as style reference',
+              emoji: true
+            },
+            value: 'include_profile_reference'
+          }],
           options: [{
             text: {
               type: 'plain_text',
@@ -309,45 +317,6 @@ async function showFileSelectionModal(client, triggerId, teamId, userId, channel
       });
     }
 
-    // Add destination option
-    modal.blocks.push({
-      type: 'input',
-      block_id: 'result_destination',
-      element: {
-        type: 'radio_buttons',
-        action_id: 'destination_choice',
-        options: [
-          {
-            text: {
-              type: 'plain_text',
-              text: '🔒 Send results privately (only you can see)',
-              emoji: true
-            },
-            value: 'private'
-          },
-          {
-            text: {
-              type: 'plain_text',
-              text: '📢 Send results to this channel',
-              emoji: true
-            },
-            value: 'channel'
-          }
-        ],
-        initial_option: {
-          text: {
-            type: 'plain_text',
-            text: '🔒 Send results privately (only you can see)',
-            emoji: true
-          },
-          value: 'private'
-        }
-      },
-      label: {
-        type: 'plain_text',
-        text: 'Where should results be sent?'
-      }
-    });
 
     await client.views.open({
       trigger_id: triggerId,

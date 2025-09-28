@@ -30,7 +30,7 @@ async function handleExtendedSlashCommand({ command, ack, respond, client, body 
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: `👆 *Click the button below to authorize:*`
+              text: '👆 *Click the button below to authorize:*'
             },
             accessory: {
               type: 'button',
@@ -173,12 +173,11 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
   const isProduction = process.env.NODE_ENV === 'production';
   
   // Get the original channel ID from private metadata
-  let originalChannelId;
   try {
     const metadata = JSON.parse(view.private_metadata || '{}');
-    originalChannelId = metadata.channelId;
+    // originalChannelId = metadata.channelId; // Currently unused
   } catch (e) {
-    originalChannelId = teamId; // fallback to team
+    // Handle metadata parsing error
   }
 
   try {
@@ -186,7 +185,7 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
     const prompt = view.state.values.prompt_input.prompt_text.value?.trim();
     // For section accessories, we need to find the block and access the action
     let useProfilePhoto = false;
-    for (const [blockId, blockValues] of Object.entries(view.state.values)) {
+    for (const [, blockValues] of Object.entries(view.state.values)) {
       if (blockValues.use_profile_photo?.selected_options?.length > 0) {
         useProfilePhoto = blockValues.use_profile_photo.selected_options.some(option => option.value === 'include_profile');
         break;
@@ -292,7 +291,6 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
       }
     } else {
       // Edit profile photo only
-      imageToEdit = currentPhoto;
       editedImageResult = await imageService.editImage(currentPhoto, prompt, client, userId);
     }
 
@@ -374,7 +372,7 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
       await client.chat.update({
         channel: processingMessage.channel,
         ts: processingMessage.ts,
-        text: `✅ *Extended edit complete!*`,
+        text: '✅ *Extended edit complete!*',
         blocks: successBlocks
       });
     } catch (updateError) {
@@ -382,7 +380,7 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
       await client.chat.postEphemeral({
         channel: userId,
         user: userId,
-        text: `✅ *Extended edit complete!*`,
+        text: '✅ *Extended edit complete!*',
         blocks: successBlocks
       });
     }
@@ -422,115 +420,10 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
   }
 }
 
-async function showExtendedResults(client, viewId, originalImage, editedImageResult, prompt, referenceImages, useProfilePhoto) {
-  const successBlocks = [
-    {
-      type: 'section',
-      text: {
-        type: 'mrkdwn',
-        text: `✅ *Extended Edit Complete!*\n\n*Prompt:* "${prompt}"`
-      }
-    },
-    {
-      type: 'section',
-      text: {
-        type: 'mrkdwn',
-        text: `*Settings:*\n• Profile photo used: ${useProfilePhoto ? 'Yes ✓' : 'No'}\n• Reference images: ${referenceImages.length}`
-      }
-    }
-  ];
-
-  successBlocks.push({
-    type: 'section',
-    text: {
-      type: 'mrkdwn',
-      text: '*Before & After:*'
-    }
-  });
-
-  // Add original image
-  successBlocks.push({
-    type: 'image',
-    title: {
-      type: 'plain_text',
-      text: '📸 Original'
-    },
-    image_url: originalImage,
-    alt_text: 'Original profile photo'
-  });
-
-  // Add edited image
-  if (editedImageResult.fileId) {
-    successBlocks.push({
-      type: 'image',
-      title: {
-        type: 'plain_text',
-        text: '✨ Extended Edit Result'
-      },
-      slack_file: {
-        id: editedImageResult.fileId
-      },
-      alt_text: 'AI-edited profile photo'
-    });
-  } else if (editedImageResult.localUrl) {
-    successBlocks.push({
-      type: 'image',
-      title: {
-        type: 'plain_text',
-        text: '✨ Extended Edit Result'
-      },
-      image_url: editedImageResult.localUrl,
-      alt_text: 'AI-edited profile photo'
-    });
-  }
-
-  // Add action buttons
-  successBlocks.push({
-    type: 'actions',
-    elements: [
-      {
-        type: 'button',
-        text: {
-          type: 'plain_text',
-          text: '✅ Set as Profile Picture'
-        },
-        style: 'primary',
-        action_id: 'approve_ext_edit',
-        value: JSON.stringify({ 
-          editedImage: editedImageResult.localUrl, 
-          prompt,
-          referenceCount: referenceImages.length,
-          useProfilePhoto
-        })
-      },
-      {
-        type: 'button',
-        text: {
-          type: 'plain_text',
-          text: '🔄 Try Again'
-        },
-        action_id: 'retry_ext_edit'
-      }
-    ]
-  });
-
-  await client.views.update({
-    view_id: viewId,
-    view: {
-      type: 'modal',
-      callback_id: 'ext_results_modal',
-      title: {
-        type: 'plain_text',
-        text: 'Extended Edit Results ✨'
-      },
-      blocks: successBlocks,
-      close: {
-        type: 'plain_text',
-        text: 'Close'
-      }
-    }
-  });
-}
+// Commented out unused function
+// async function showExtendedResults(client, viewId, originalImage, editedImageResult, prompt, referenceImages, useProfilePhoto) {
+//   ... implementation removed
+// }
 
 module.exports = {
   handleExtendedSlashCommand,

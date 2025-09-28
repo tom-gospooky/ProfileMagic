@@ -1,10 +1,10 @@
 const { getPreset } = require('../utils/presets');
 const slackService = require('../services/slack');
 const imageService = require('../services/image');
-const axios = require('axios');
+// const axios = require('axios'); // Currently unused
 const { getOAuthUrl } = require('../services/fileServer');
 const { showExtendedModal } = require('./extendedCommand');
-const fileCache = require('../utils/fileCache');
+// const fileCache = require('../utils/fileCache'); // Currently unused
 
 async function handlePresetSelection({ ack, body, view, client }) {
   await ack();
@@ -48,12 +48,12 @@ async function handlePresetSelection({ ack, body, view, client }) {
   }
 }
 
-async function handlePreviewAction({ ack, body, view, client }) {
+async function handlePreviewAction({ ack }) {
   await ack();
   // This handles modal submissions for the preview modal
 }
 
-async function handlePresetSelect({ ack, body, client }) {
+async function handlePresetSelect({ ack }) {
   await ack();
   // This handles the radio button selection (no action needed, handled in modal submission)
 }
@@ -74,7 +74,7 @@ async function handleApprove({ ack, body, client }) {
   } catch (parseError) {
     // Fallback for old format (just the URL)
     editedImageUrl = body.actions[0].value;
-    prompt = "unknown";
+    prompt = 'unknown';
   }
 
   const isProduction = process.env.NODE_ENV === 'production';
@@ -265,7 +265,7 @@ async function handleApproveMessage({ ack, body, client }) {
   } catch (parseError) {
     // Fallback for old format (just the URL)
     editedImageUrl = body.actions[0].value;
-    prompt = "unknown";
+    prompt = 'unknown';
   }
 
   try {
@@ -279,7 +279,7 @@ async function handleApproveMessage({ ack, body, client }) {
       // For interactive components, use response_url if available
       const axios = require('axios');
       await axios.post(body.response_url, {
-        text: `✅ *Profile picture updated!* 🎉`,
+        text: '✅ *Profile picture updated!* 🎉',
         response_type: 'ephemeral'
       });
     }
@@ -801,8 +801,6 @@ async function handleApproveExtended({ ack, body, client }) {
 async function handleRetryExtended({ ack, body, client }) {
   await ack();
 
-  const userId = body.user.id;
-
   try {
     // Close current modal and re-open extended modal
     await client.views.update({
@@ -1046,7 +1044,7 @@ async function handleMessageShortcut({ ack, shortcut, client }) {
       await client.chat.update({
         channel: channelId,
         ts: processingMessage.ts,
-        text: `✅ *Image edited with NB shortcut!*`,
+        text: '✅ *Image edited with NB shortcut!*',
         blocks: successBlocks
       });
 
@@ -1084,8 +1082,6 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
   await ack();
 
   const userId = body.user.id;
-  const teamId = body.team.id;
-  const isProduction = process.env.NODE_ENV === 'production';
 
   try {
     // Parse metadata
@@ -1096,7 +1092,6 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
     const promptValue = view.state.values.prompt_input?.prompt_text?.value?.trim();
     const uploadedFiles = view.state.values.file_input?.image_files?.files || [];
     const useProfileRef = view.state.values.profile_reference?.use_profile_reference?.selected_options || [];
-    const destination = view.state.values.result_destination?.destination_choice?.selected_option?.value || 'private';
 
     if (!promptValue) {
       return await client.chat.postEphemeral({
@@ -1122,32 +1117,17 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
 
     console.log(`Processing ${uploadedFiles.length} uploaded files with prompt: "${promptValue}"`);
     console.log(`Reference image: ${referenceImageUrl ? 'Yes (profile photo)' : 'No'}`);
-    console.log(`Results destination: ${destination}`);
     console.log(`Target channel: ${channelId}, User: ${userId}`);
 
-    // Close modal immediately and send processing message
-    const targetChannel = destination === 'channel' ? channelId : userId;
-    const isPrivate = destination === 'private';
-
-    console.log(`Sending ${isPrivate ? 'ephemeral' : 'public'} processing message to channel: ${targetChannel}`);
-
-    // Send initial processing message
+    // Close modal immediately and send processing message (always private initially)
     let processingMsg;
     try {
-      if (isPrivate) {
-        processingMsg = await client.chat.postEphemeral({
-          channel: channelId,
-          user: userId,
-          text: `🎨 *Processing ${uploadedFiles.length} image${uploadedFiles.length === 1 ? '' : 's'}...*\n*Prompt:* "${promptValue}"\n\nYour results will appear here shortly!`
-        });
-        console.log(`Ephemeral processing message sent successfully:`, processingMsg);
-      } else {
-        processingMsg = await client.chat.postMessage({
-          channel: targetChannel,
-          text: `🎨 *<@${userId}> is transforming ${uploadedFiles.length} image${uploadedFiles.length === 1 ? '' : 's'}...*\n*Prompt:* "${promptValue}"\n\nResults coming soon!`
-        });
-        console.log(`Public processing message sent successfully:`, processingMsg);
-      }
+      processingMsg = await client.chat.postEphemeral({
+        channel: channelId,
+        user: userId,
+        text: `🎨 *Processing ${uploadedFiles.length} image${uploadedFiles.length === 1 ? '' : 's'}...*\n*Prompt:* "${promptValue}"\n\nYour results will appear here shortly!`
+      });
+      console.log('Processing message sent successfully:', processingMsg);
     } catch (msgError) {
       console.error('Error sending processing message:', msgError);
       throw msgError;
@@ -1289,23 +1269,21 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
             });
           }
 
-          // Add "Send to Channel" button if results were sent privately
-          if (isPrivate) {
-            actionElements.push({
-              type: 'button',
-              text: { type: 'plain_text', text: '📢 Send to Channel' },
-              action_id: 'send_to_channel',
-              value: JSON.stringify({
-                results: successful.map(result => ({
-                  localUrl: result.result.localUrl,
-                  fileId: result.result.fileId,
-                  filename: result.originalFile.name
-                })),
-                prompt: promptValue,
-                channelId: channelId
-              })
-            });
-          }
+          // Add "Send to Channel" button (always show since results are initially private)
+          actionElements.push({
+            type: 'button',
+            text: { type: 'plain_text', text: '📢 Send to Channel' },
+            action_id: 'send_to_channel',
+            value: JSON.stringify({
+              results: successful.map(result => ({
+                localUrl: result.result.localUrl,
+                fileId: result.result.fileId,
+                filename: result.originalFile.name
+              })),
+              prompt: promptValue,
+              channelId: channelId
+            })
+          });
 
           resultBlocks.push({
             type: 'actions',
@@ -1313,22 +1291,13 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
           });
         }
 
-        // Update the processing message with results
-        if (isPrivate) {
-          await client.chat.update({
-            channel: channelId,
-            ts: processingMsg.message_ts,
-            text: `✅ *Transformation complete!*\n*Prompt:* "${promptValue}"\n*Successful:* ${successful.length}\n*Failed:* ${failed.length}`,
-            blocks: resultBlocks
-          });
-        } else {
-          await client.chat.update({
-            channel: targetChannel,
-            ts: processingMsg.ts,
-            text: `✅ *<@${userId}>'s transformation complete!*\n*Prompt:* "${promptValue}"\n*Successful:* ${successful.length}\n*Failed:* ${failed.length}`,
-            blocks: resultBlocks
-          });
-        }
+        // Update the processing message with results (always ephemeral initially)
+        await client.chat.update({
+          channel: channelId,
+          ts: processingMsg.message_ts,
+          text: `✅ *Transformation complete!*\n*Prompt:* "${promptValue}"\n*Successful:* ${successful.length}\n*Failed:* ${failed.length}`,
+          blocks: resultBlocks
+        });
 
       } catch (error) {
         console.error('Background processing error:', error);
@@ -1341,27 +1310,18 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
           errorMessage = `⚠️ **Generation Failed**\n\n${error.userMessage}`;
         }
 
-        // Update the processing message with error
+        // Update the processing message with error (always ephemeral initially)
         const errorBlocks = [{
           type: 'section',
           text: { type: 'mrkdwn', text: errorMessage }
         }];
 
-        if (isPrivate) {
-          await client.chat.update({
-            channel: channelId,
-            ts: processingMsg.message_ts,
-            text: errorMessage,
-            blocks: errorBlocks
-          });
-        } else {
-          await client.chat.update({
-            channel: targetChannel,
-            ts: processingMsg.ts,
-            text: errorMessage,
-            blocks: errorBlocks
-          });
-        }
+        await client.chat.update({
+          channel: channelId,
+          ts: processingMsg.message_ts,
+          text: errorMessage,
+          blocks: errorBlocks
+        });
       }
     }, 100); // Small delay to ensure modal closes first
 
@@ -1376,35 +1336,16 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
       errorMessage = `⚠️ **Generation Failed**\n\n${error.userMessage}`;
     }
 
-    // Send error to chosen destination instead of updating modal
+    // Send error message as ephemeral
     try {
-      // Parse metadata for destination info (if modal failed before processing)
-      let destination = 'private';
-      let channelId = userId;
+      const metadata = JSON.parse(view.private_metadata);
+      const { channelId } = metadata;
 
-      try {
-        const metadata = JSON.parse(view.private_metadata);
-        channelId = metadata.channelId;
-        destination = view.state.values.result_destination?.destination_choice?.selected_option?.value || 'private';
-      } catch (metaError) {
-        // Fall back to private message if metadata parsing fails
-      }
-
-      const targetChannel = destination === 'channel' ? channelId : userId;
-      const isPrivate = destination === 'private';
-
-      if (isPrivate) {
-        await client.chat.postEphemeral({
-          channel: channelId,
-          user: userId,
-          text: errorMessage
-        });
-      } else {
-        await client.chat.postMessage({
-          channel: targetChannel,
-          text: `<@${userId}> ${errorMessage}`
-        });
-      }
+      await client.chat.postEphemeral({
+        channel: channelId,
+        user: userId,
+        text: errorMessage
+      });
     } catch (messageError) {
       console.error('Failed to send error message:', messageError);
       // Final fallback - try to send a simple ephemeral message
@@ -1425,12 +1366,10 @@ async function handleProfileOnlyModal({ ack, body, view, client }) {
   await ack();
 
   const userId = body.user.id;
-  const teamId = body.team.id;
 
   try {
     // Parse metadata
     const metadata = JSON.parse(view.private_metadata);
-    const { channelId } = metadata;
 
     // Get prompt from modal
     const promptValue = view.state.values.prompt_input?.prompt_text?.value?.trim();
@@ -1676,7 +1615,7 @@ async function handleProfileReferenceToggle({ ack, body, client }) {
 
   try {
     const metadata = JSON.parse(body.view.private_metadata);
-    const { teamId, userId, channelId, profilePhoto } = metadata;
+    const { profilePhoto } = metadata;
 
     // Get current form state
     const currentView = body.view;
@@ -1799,7 +1738,7 @@ async function handleSendToChannel({ ack, body, client }) {
     await client.chat.postEphemeral({
       channel: channelId,
       user: userId,
-      text: `✅ Your transformed images have been shared with the channel!`
+      text: '✅ Your transformed images have been shared with the channel!'
     });
 
   } catch (error) {
