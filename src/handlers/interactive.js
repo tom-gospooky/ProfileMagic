@@ -1271,7 +1271,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
         if (imageUrls.length === 0 && referenceImageUrl) {
           // Profile photo only processing
           try {
-            const result = await imageService.editImage(referenceImageUrl, promptValue, client, userId);
+            const result = await imageService.editImage(referenceImageUrl, promptValue, client, userId, null, channelId);
             results.push({
               success: true,
               result: result,
@@ -1289,7 +1289,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
         } else if (imageUrls.length === 1) {
           // Single image processing
           try {
-            const result = await imageService.editImage(imageUrls[0], promptValue, client, userId, referenceImageUrl);
+            const result = await imageService.editImage(imageUrls[0], promptValue, client, userId, referenceImageUrl, channelId);
             results.push({
               success: true,
               result: result,
@@ -1306,7 +1306,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
           }
         } else {
           // Multiple image processing
-          const batchResult = await imageService.editMultipleImages(imageUrls, promptValue, client, userId, referenceImageUrl);
+          const batchResult = await imageService.editMultipleImages(imageUrls, promptValue, client, userId, referenceImageUrl, channelId);
           results = batchResult.results.map((r, index) => ({
             ...r,
             originalFile: { name: uploadedFiles[index]?.name || `uploaded_image_${index + 1}` }

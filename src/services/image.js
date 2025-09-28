@@ -53,7 +53,7 @@ const handleApiResponse = async (response, context = 'edit', client, userId) => 
     // Upload to Slack for proper display
     try {
       const uploadResult = await client.files.uploadV2({
-        channel_id: userId, // Upload as DM to user
+        channel_id: channelId || userId, // Use channelId if provided, fallback to userId
         file: imageBuffer,
         filename: filename,
         title: `AI Edited Profile Photo - ${context}`,
@@ -111,7 +111,7 @@ const handleApiResponse = async (response, context = 'edit', client, userId) => 
   throw new Error(errorMessage);
 };
 
-async function editImage(imageUrl, prompt, client, userId, referenceImageUrl = null) {
+async function editImage(imageUrl, prompt, client, userId, referenceImageUrl = null, channelId = null) {
   const isProduction = process.env.NODE_ENV === 'production';
   
   try {
@@ -270,7 +270,7 @@ async function editImageMock(imageUrl, prompt) {
 // Export the real function - we want to test the actual Gemini API
 const editImageFunction = editImage;
 
-async function editMultipleImages(imageUrls, prompt, client, userId, referenceImageUrl = null) {
+async function editMultipleImages(imageUrls, prompt, client, userId, referenceImageUrl = null, channelId = null) {
   const isProduction = process.env.NODE_ENV === 'production';
 
   if (!imageUrls || imageUrls.length === 0) {
@@ -286,7 +286,7 @@ async function editMultipleImages(imageUrls, prompt, client, userId, referenceIm
     const imageUrl = imageUrls[i];
     try {
       console.log(`Processing image ${i + 1}/${imageUrls.length}: ${imageUrl}`);
-      const result = await editImage(imageUrl, prompt, client, userId, referenceImageUrl);
+      const result = await editImage(imageUrl, prompt, client, userId, referenceImageUrl, channelId);
       results.push({
         success: true,
         originalUrl: imageUrl,
