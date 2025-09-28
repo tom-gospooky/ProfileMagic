@@ -1162,29 +1162,33 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
     console.log(`Reference image: ${referenceImageUrl ? 'Yes (profile photo)' : 'No'}`);
     console.log(`Target channel: ${channelId}, User: ${userId}`);
 
-    // Send processing message (always private initially)
+    // Send processing message - detect if it's a DM channel
     const imageCount = uploadedFiles.length || (referenceImageUrl ? 1 : 0);
+    const isDMChannel = channelId.startsWith('D');
     let processingMsg;
+
     try {
       console.log('📤 Attempting to send processing message...');
-      processingMsg = await client.chat.postEphemeral({
-        channel: channelId,
-        user: userId,
-        text: `🎨 *Processing ${imageCount} image${imageCount === 1 ? '' : 's'}...*\n*Prompt:* "${promptValue}"\n\nYour results will appear here shortly!`
-      });
+      console.log(`Channel type: ${isDMChannel ? 'DM' : 'Regular'} (${channelId})`);
+
+      if (isDMChannel) {
+        // For DM channels, send direct message
+        processingMsg = await client.chat.postMessage({
+          channel: channelId,
+          text: `🎨 *Processing ${imageCount} image${imageCount === 1 ? '' : 's'}...*\n*Prompt:* "${promptValue}"\n\nYour results will appear here shortly!`
+        });
+      } else {
+        // For regular channels, use ephemeral
+        processingMsg = await client.chat.postEphemeral({
+          channel: channelId,
+          user: userId,
+          text: `🎨 *Processing ${imageCount} image${imageCount === 1 ? '' : 's'}...*\n*Prompt:* "${promptValue}"\n\nYour results will appear here shortly!`
+        });
+      }
       console.log('Processing message sent successfully:', processingMsg);
     } catch (msgError) {
       console.error('Error sending processing message:', msgError);
-      // Fallback to DM
-      try {
-        processingMsg = await client.chat.postMessage({
-          channel: userId,
-          text: `🎨 *Processing ${uploadedFiles.length} image${uploadedFiles.length === 1 ? '' : 's'}...*\n*Prompt:* "${promptValue}"\n\nYour results will appear here shortly!`
-        });
-      } catch (dmError) {
-        console.error('Failed to send processing message via DM:', dmError);
-        return;
-      }
+      return;
     }
 
     // Get file URLs for processing
@@ -1408,24 +1412,23 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
       errorMessage = `⚠️ **Generation Failed**\n\n${error.userMessage}`;
     }
 
-    // Send error message to user
+    // Send error message to user - handle DM channels properly
+    const isDMChannel = channelId.startsWith('D');
     try {
-      await client.chat.postEphemeral({
-        channel: channelId,
-        user: userId,
-        text: errorMessage
-      });
+      if (isDMChannel) {
+        await client.chat.postMessage({
+          channel: channelId,
+          text: errorMessage
+        });
+      } else {
+        await client.chat.postEphemeral({
+          channel: channelId,
+          user: userId,
+          text: errorMessage
+        });
+      }
     } catch (messageError) {
       console.error('Failed to send error message:', messageError);
-      // Final fallback - try to send DM
-      try {
-        await client.chat.postMessage({
-          channel: userId,
-          text: '❌ Something went wrong. Please try again.'
-        });
-      } catch (finalError) {
-        console.error('Final error fallback failed:', finalError);
-      }
     }
   }
 }
