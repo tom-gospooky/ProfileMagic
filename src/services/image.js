@@ -15,7 +15,7 @@ const bufferToPart = (buffer) => {
   };
 };
 
-const handleApiResponse = async (response, context = 'edit', client, userId) => {
+const handleApiResponse = async (response, context = 'edit', client, userId, channelId = null) => {
   const isProduction = process.env.NODE_ENV === 'production';
   
   if (!isProduction) {
@@ -201,7 +201,7 @@ async function editImage(imageUrl, prompt, client, userId, referenceImageUrl = n
     }
     
     if (!isProduction) console.log('Received response from Gemini API');
-    return await handleApiResponse(response, 'edit', client, userId);
+    return await handleApiResponse(response, 'edit', client, userId, channelId);
 
   } catch (error) {
     console.error('editImage error:', error.constructor.name, error.message);
