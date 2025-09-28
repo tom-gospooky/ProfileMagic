@@ -1122,40 +1122,15 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
     console.log(`✅ Modal acknowledged and closed for user ${userId}`);
     console.log('Channel/User info:', { channelId, userId, hasProfilePhoto: !!profilePhoto });
 
-    // IMMEDIATELY try to send a simple test message to debug channel access
-    console.log('🔍 Testing immediate message delivery...');
-    try {
-      const testResult = await client.chat.postMessage({
-        channel: userId, // Direct message to user
-        text: '🧪 **Test message** - Modal was submitted successfully! Processing will start now...'
-      });
-      console.log('✅ TEST MESSAGE SUCCESS:', testResult.ok);
-    } catch (testError) {
-      console.error('❌ TEST MESSAGE FAILED:', testError.data?.error || testError.message);
-
-      // Try ephemeral as backup
-      try {
-        const ephemeralResult = await client.chat.postEphemeral({
-          channel: channelId,
-          user: userId,
-          text: '🧪 **Test ephemeral** - Modal was submitted! Processing starting...'
-        });
-        console.log('✅ TEST EPHEMERAL SUCCESS:', ephemeralResult.ok);
-      } catch (ephemeralError) {
-        console.error('❌ TEST EPHEMERAL FAILED:', ephemeralError.data?.error || ephemeralError.message);
-      }
-    }
-
     // Process asynchronously AFTER modal is acknowledged
     processImagesAsync(client, userId, channelId, promptValue, uploadedFiles, useProfileRef, profilePhoto)
-      .catch(error => {
+      .catch(async error => {
         console.error('Critical error in background processing:', error);
         // Try to send error message to user
-        client.chat.postEphemeral({
-          channel: channelId,
-          user: userId,
-          text: '❌ Something went wrong with image processing. Please try again.'
-        }).catch(msgError => console.error('Failed to send error message:', msgError));
+        const fallbackResult = await sendMessageRobust(client, channelId, userId, '❌ Something went wrong with image processing. Please try again.');
+        if (!fallbackResult) {
+          console.error('Failed to deliver error message via any channel.');
+        }
       });
 
   } catch (error) {
@@ -1176,20 +1151,25 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
 
 // Robust message delivery with fallback cascade
 async function sendMessageRobust(client, channelId, userId, text) {
+  const isImChannel = typeof channelId === 'string' && channelId.startsWith('D');
   const methods = [
-    {
-      name: 'ephemeral',
-      fn: () => client.chat.postEphemeral({ channel: channelId, user: userId, text })
-    },
-    {
-      name: 'dm_to_user',
-      fn: () => client.chat.postMessage({ channel: userId, text })
-    },
     {
       name: 'public_message',
       fn: () => client.chat.postMessage({ channel: channelId, text })
     }
   ];
+
+  if (!isImChannel) {
+    methods.push({
+      name: 'ephemeral',
+      fn: () => client.chat.postEphemeral({ channel: channelId, user: userId, text })
+    });
+  }
+
+  methods.push({
+    name: 'dm_to_user',
+    fn: () => client.chat.postMessage({ channel: userId, text })
+  });
 
   for (const method of methods) {
     try {
@@ -1209,6 +1189,9 @@ async function sendMessageRobust(client, channelId, userId, text) {
 async function processImagesAsync(client, userId, channelId, promptValue, uploadedFiles, useProfileRef, profilePhoto) {
   console.log('🚀 processImagesAsync STARTED');
   console.log('Parameters:', { userId, channelId, promptValue, uploadedFilesCount: uploadedFiles?.length || 0, useProfileRefCount: useProfileRef?.length || 0, hasProfilePhoto: !!profilePhoto });
+
+  let processingMsg = null;
+  let processingTs = null;
 
   try {
     // Determine reference image URL - fetch fresh instead of relying on passed data
@@ -1233,7 +1216,8 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
     const text = `🎨 *Processing ${imageCount} image${imageCount === 1 ? '' : 's'}...*\n*Prompt:* "${promptValue}"\n\nYour results will appear here shortly!`;
 
     console.log('📤 Attempting to send processing message...');
-    const processingMsg = await sendMessageRobust(client, channelId, userId, text);
+    processingMsg = await sendMessageRobust(client, channelId, userId, text);
+    processingTs = processingMsg?.ts || processingMsg?.message_ts || null;
 
     // Get file URLs for processing
     const imageUrls = [];
@@ -1256,11 +1240,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
 
     // If no uploaded files but we have profile photo, that's ok
     if (imageUrls.length === 0 && !referenceImageUrl) {
-      await client.chat.postEphemeral({
-        channel: channelId,
-        user: userId,
-        text: '❌ Could not access any images to process. Please try again.'
-      });
+      await sendMessageRobust(client, channelId, userId, '❌ Could not access any images to process. Please try again.');
       return;
     }
 
@@ -1415,11 +1395,11 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
         // Update the processing message with results (handle undefined processingMsg)
         const successText = `✅ *Transformation complete!*\n*Prompt:* "${promptValue}"\n*Successful:* ${successful.length}\n*Failed:* ${failed.length}`;
 
-        if (processingMsg && processingMsg.message_ts) {
+        if (processingTs) {
           try {
             await client.chat.update({
               channel: channelId,
-              ts: processingMsg.message_ts,
+              ts: processingTs,
               text: successText,
               blocks: resultBlocks
             });
@@ -1451,11 +1431,11 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
           text: { type: 'mrkdwn', text: errorMessage }
         }];
 
-        if (processingMsg && processingMsg.message_ts) {
+        if (processingTs) {
           try {
             await client.chat.update({
               channel: channelId,
-              ts: processingMsg.message_ts,
+              ts: processingTs,
               text: errorMessage,
               blocks: errorBlocks
             });
