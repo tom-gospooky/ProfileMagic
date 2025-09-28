@@ -19,7 +19,11 @@
       "Bash(git remote add:*)",
       "Bash(git push:*)",
       "Bash(railway:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "WebFetch(domain:docs.slack.dev)",
+      "Bash(node:*)",
+      "Bash(echo:*)",
+      "Read(//Users/tom/.railway/**)"
     ],
     "deny": [],
     "ask": []

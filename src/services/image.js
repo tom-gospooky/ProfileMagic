@@ -270,8 +270,57 @@ async function editImageMock(imageUrl, prompt) {
 // Export the real function - we want to test the actual Gemini API
 const editImageFunction = editImage;
 
+async function editMultipleImages(imageUrls, prompt, client, userId, referenceImageUrl = null) {
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  if (!imageUrls || imageUrls.length === 0) {
+    throw new Error('No images provided for editing');
+  }
+
+  console.log(`Starting batch edit for ${imageUrls.length} images with prompt: "${prompt}"`);
+
+  const results = [];
+
+  // Process images sequentially to avoid overwhelming the API
+  for (let i = 0; i < imageUrls.length; i++) {
+    const imageUrl = imageUrls[i];
+    try {
+      console.log(`Processing image ${i + 1}/${imageUrls.length}: ${imageUrl}`);
+      const result = await editImage(imageUrl, prompt, client, userId, referenceImageUrl);
+      results.push({
+        success: true,
+        originalUrl: imageUrl,
+        result: result,
+        index: i
+      });
+    } catch (error) {
+      console.error(`Failed to edit image ${i + 1}:`, error.message);
+      results.push({
+        success: false,
+        originalUrl: imageUrl,
+        error: error.message,
+        index: i
+      });
+    }
+  }
+
+  // Return summary
+  const successful = results.filter(r => r.success);
+  const failed = results.filter(r => !r.success);
+
+  console.log(`Batch edit complete: ${successful.length} successful, ${failed.length} failed`);
+
+  return {
+    total: imageUrls.length,
+    successful: successful.length,
+    failed: failed.length,
+    results: results
+  };
+}
+
 module.exports = {
   editImage: editImageFunction,
   editImageMock,
-  editImageReal: editImage
+  editImageReal: editImage,
+  editMultipleImages
 };

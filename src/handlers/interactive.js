@@ -4,6 +4,7 @@ const imageService = require('../services/image');
 const axios = require('axios');
 const { getOAuthUrl } = require('../services/fileServer');
 const { showExtendedModal } = require('./extendedCommand');
+const fileCache = require('../utils/fileCache');
 
 async function handlePresetSelection({ ack, body, view, client }) {
   await ack();
@@ -1079,6 +1080,589 @@ async function handleMessageShortcut({ ack, shortcut, client }) {
   }
 }
 
+async function handleFileSelectionModal({ ack, body, view, client }) {
+  await ack();
+
+  const userId = body.user.id;
+  const teamId = body.team.id;
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  try {
+    // Parse metadata
+    const metadata = JSON.parse(view.private_metadata);
+    const { channelId, profilePhoto } = metadata;
+
+    // Get values from the modal
+    const promptValue = view.state.values.prompt_input?.prompt_text?.value?.trim();
+    const uploadedFiles = view.state.values.file_input?.image_files?.files || [];
+    const useProfileRef = view.state.values.profile_reference?.use_profile_reference?.selected_options || [];
+
+    if (!promptValue) {
+      return await client.views.update({
+        view_id: body.view.id,
+        view: {
+          type: 'modal',
+          title: { type: 'plain_text', text: 'Missing Prompt' },
+          blocks: [{
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '❌ Please enter a prompt describing how you want to transform your images.'
+            }
+          }],
+          close: { type: 'plain_text', text: 'Close' }
+        }
+      });
+    }
+
+    if (!uploadedFiles || uploadedFiles.length === 0) {
+      return await client.views.update({
+        view_id: body.view.id,
+        view: {
+          type: 'modal',
+          title: { type: 'plain_text', text: 'No Files Uploaded' },
+          blocks: [{
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '❌ Please upload at least one image to transform.'
+            }
+          }],
+          close: { type: 'plain_text', text: 'Close' }
+        }
+      });
+    }
+
+    // Determine reference image URL
+    let referenceImageUrl = null;
+    if (useProfileRef.length > 0 && profilePhoto) {
+      referenceImageUrl = profilePhoto;
+    }
+
+    if (!isProduction) {
+      console.log(`Processing ${uploadedFiles.length} uploaded files with prompt: "${promptValue}"`);
+      console.log(`Reference image: ${referenceImageUrl ? 'Yes (profile photo)' : 'No'}`);
+    }
+
+    // Show processing modal
+    await client.views.update({
+      view_id: body.view.id,
+      view: {
+        type: 'modal',
+        title: { type: 'plain_text', text: 'Processing...' },
+        blocks: [{
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `🎨 *Transforming ${uploadedFiles.length} image${uploadedFiles.length === 1 ? '' : 's'}...*\n\n*Prompt:* "${promptValue}"\n\nThis may take a moment!`
+          }
+        }],
+        close: { type: 'plain_text', text: 'Close' }
+      }
+    });
+
+    // Get file URLs for processing
+    const imageUrls = [];
+    for (const file of uploadedFiles) {
+      try {
+        // Get file info from Slack
+        const fileInfo = await client.files.info({
+          file: file.id
+        });
+
+        if (fileInfo.file && fileInfo.file.url_private_download) {
+          imageUrls.push(fileInfo.file.url_private_download);
+        } else if (fileInfo.file && fileInfo.file.url_private) {
+          imageUrls.push(fileInfo.file.url_private);
+        }
+      } catch (fileError) {
+        console.error(`Failed to get info for file ${file.id}:`, fileError.message);
+      }
+    }
+
+    if (imageUrls.length === 0) {
+      return await client.views.update({
+        view_id: body.view.id,
+        view: {
+          type: 'modal',
+          title: { type: 'plain_text', text: 'File Access Error' },
+          blocks: [{
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '❌ Could not access the uploaded files. Please try again.'
+            }
+          }],
+          close: { type: 'plain_text', text: 'Close' }
+        }
+      });
+    }
+
+    // Process images
+    let results = [];
+
+    if (imageUrls.length === 1) {
+      // Single image processing
+      try {
+        const result = await imageService.editImage(imageUrls[0], promptValue, client, userId, referenceImageUrl);
+        results.push({
+          success: true,
+          result: result,
+          index: 0,
+          originalFile: { name: uploadedFiles[0].name || 'uploaded_image' }
+        });
+      } catch (error) {
+        results.push({
+          success: false,
+          error: error.message,
+          index: 0,
+          originalFile: { name: uploadedFiles[0].name || 'uploaded_image' }
+        });
+      }
+    } else {
+      // Multiple image processing
+      const batchResult = await imageService.editMultipleImages(imageUrls, promptValue, client, userId, referenceImageUrl);
+      results = batchResult.results.map((r, index) => ({
+        ...r,
+        originalFile: { name: uploadedFiles[index]?.name || `uploaded_image_${index + 1}` }
+      }));
+    }
+
+    // Build result modal
+    const successful = results.filter(r => r.success);
+    const failed = results.filter(r => !r.success);
+
+    const resultBlocks = [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `✅ *Transformation complete!*\n\n*Prompt:* "${promptValue}"\n*Successful:* ${successful.length}\n*Failed:* ${failed.length}`
+        }
+      }
+    ];
+
+    // Add successful results
+    for (const result of successful) {
+      if (result.result.fileId) {
+        resultBlocks.push({
+          type: 'image',
+          title: {
+            type: 'plain_text',
+            text: `✨ ${result.originalFile.name}`
+          },
+          slack_file: {
+            id: result.result.fileId
+          },
+          alt_text: `AI-transformed ${result.originalFile.name}`
+        });
+      } else if (result.result.localUrl) {
+        resultBlocks.push({
+          type: 'image',
+          title: {
+            type: 'plain_text',
+            text: `✨ ${result.originalFile.name}`
+          },
+          image_url: result.result.localUrl,
+          alt_text: `AI-transformed ${result.originalFile.name}`
+        });
+      }
+    }
+
+    // Add errors if any
+    if (failed.length > 0) {
+      resultBlocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `*Failed transformations:*\n${failed.map(f => `• ${f.originalFile.name}: ${f.error}`).join('\n')}`
+        }
+      });
+    }
+
+    // Add action buttons for successful edits
+    if (successful.length > 0) {
+      resultBlocks.push({
+        type: 'actions',
+        elements: successful.length === 1 ? [
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: '✅ Set as Profile Picture' },
+            style: 'primary',
+            action_id: 'approve_edit',
+            value: JSON.stringify({
+              editedImage: successful[0].result.localUrl,
+              prompt: promptValue
+            })
+          },
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: '🔄 Try Again' },
+            action_id: 'retry_edit'
+          }
+        ] : [
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: '🔄 Try Again' },
+            action_id: 'retry_edit'
+          }
+        ]
+      });
+    }
+
+    // Update modal with results
+    await client.views.update({
+      view_id: body.view.id,
+      view: {
+        type: 'modal',
+        callback_id: 'file_selection_results',
+        title: { type: 'plain_text', text: 'Results ✨' },
+        blocks: resultBlocks,
+        close: { type: 'plain_text', text: 'Done' }
+      }
+    });
+
+  } catch (error) {
+    console.error('File selection modal error:', error);
+
+    let errorMessage = '❌ Failed to process your images. Please try again.';
+
+    if (error.message === 'CONTENT_BLOCKED') {
+      errorMessage = `🚫 **Content Blocked**\n\n${error.userMessage}\n\n*Try different prompts or images.*`;
+    } else if (error.message === 'GENERATION_FAILED') {
+      errorMessage = `⚠️ **Generation Failed**\n\n${error.userMessage}`;
+    }
+
+    await client.views.update({
+      view_id: body.view.id,
+      view: {
+        type: 'modal',
+        title: { type: 'plain_text', text: 'Error' },
+        blocks: [{
+          type: 'section',
+          text: { type: 'mrkdwn', text: errorMessage }
+        }],
+        close: { type: 'plain_text', text: 'Close' }
+      }
+    });
+  }
+}
+
+async function handleProfileOnlyModal({ ack, body, view, client }) {
+  await ack();
+
+  const userId = body.user.id;
+  const teamId = body.team.id;
+
+  try {
+    // Parse metadata
+    const metadata = JSON.parse(view.private_metadata);
+    const { channelId } = metadata;
+
+    // Get prompt from modal
+    const promptValue = view.state.values.prompt_input?.prompt_text?.value?.trim();
+
+    if (!promptValue) {
+      return await client.views.update({
+        view_id: body.view.id,
+        view: {
+          type: 'modal',
+          title: { type: 'plain_text', text: 'Missing Prompt' },
+          blocks: [{
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '❌ Please enter a prompt describing how you want to edit your profile photo.'
+            }
+          }],
+          close: { type: 'plain_text', text: 'Close' }
+        }
+      });
+    }
+
+    // Get current profile photo
+    const currentPhoto = await slackService.getCurrentProfilePhoto(client, userId);
+    if (!currentPhoto) {
+      return await client.views.update({
+        view_id: body.view.id,
+        view: {
+          type: 'modal',
+          title: { type: 'plain_text', text: 'No Profile Photo' },
+          blocks: [{
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '❌ Could not find your profile photo. Please set a profile photo first.'
+            }
+          }],
+          close: { type: 'plain_text', text: 'Close' }
+        }
+      });
+    }
+
+    // Show processing modal
+    await client.views.update({
+      view_id: body.view.id,
+      view: {
+        type: 'modal',
+        title: { type: 'plain_text', text: 'Processing...' },
+        blocks: [{
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `🎨 *Editing your profile photo...*\n\n*Prompt:* "${promptValue}"\n\nThis may take a moment!`
+          }
+        }],
+        close: { type: 'plain_text', text: 'Close' }
+      }
+    });
+
+    // Process the profile photo
+    const result = await imageService.editImage(currentPhoto, promptValue, client, userId);
+
+    // Build result modal
+    const resultBlocks = [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `✅ *Profile photo edited!*\n\n*Prompt:* "${promptValue}"`
+        }
+      },
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: '*Before & After:*'
+        }
+      },
+      {
+        type: 'image',
+        title: { type: 'plain_text', text: '📸 Original' },
+        image_url: currentPhoto,
+        alt_text: 'Original profile photo'
+      }
+    ];
+
+    // Add edited image
+    if (result.fileId) {
+      resultBlocks.push({
+        type: 'image',
+        title: { type: 'plain_text', text: '✨ AI-Edited' },
+        slack_file: { id: result.fileId },
+        alt_text: 'AI-edited profile photo'
+      });
+    } else if (result.localUrl) {
+      resultBlocks.push({
+        type: 'image',
+        title: { type: 'plain_text', text: '✨ AI-Edited' },
+        image_url: result.localUrl,
+        alt_text: 'AI-edited profile photo'
+      });
+    }
+
+    // Add action buttons
+    resultBlocks.push({
+      type: 'actions',
+      elements: [
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: '✅ Set as Profile Picture' },
+          style: 'primary',
+          action_id: 'approve_edit',
+          value: JSON.stringify({
+            editedImage: result.localUrl,
+            prompt: promptValue
+          })
+        },
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: '🔄 Try Again' },
+          action_id: 'retry_edit'
+        }
+      ]
+    });
+
+    // Update modal with results
+    await client.views.update({
+      view_id: body.view.id,
+      view: {
+        type: 'modal',
+        callback_id: 'profile_edit_results',
+        title: { type: 'plain_text', text: 'Profile Edit Complete' },
+        blocks: resultBlocks,
+        close: { type: 'plain_text', text: 'Done' }
+      }
+    });
+
+  } catch (error) {
+    console.error('Profile only modal error:', error);
+
+    let errorMessage = '❌ Failed to edit your profile photo. Please try again.';
+    if (error.message === 'CONTENT_BLOCKED') {
+      errorMessage = `🚫 **Content Blocked**\n\n${error.userMessage}\n\n*Try a different prompt.*`;
+    } else if (error.message === 'GENERATION_FAILED') {
+      errorMessage = `⚠️ **Generation Failed**\n\n${error.userMessage}`;
+    }
+
+    await client.views.update({
+      view_id: body.view.id,
+      view: {
+        type: 'modal',
+        title: { type: 'plain_text', text: 'Error' },
+        blocks: [{
+          type: 'section',
+          text: { type: 'mrkdwn', text: errorMessage }
+        }],
+        close: { type: 'plain_text', text: 'Close' }
+      }
+    });
+  }
+}
+
+async function handleUploadGuide({ ack, body, client }) {
+  await ack();
+
+  try {
+    await client.views.push({
+      trigger_id: body.trigger_id,
+      view: {
+        type: 'modal',
+        callback_id: 'upload_guide_modal',
+        title: {
+          type: 'plain_text',
+          text: 'Upload Images 📤'
+        },
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '*How to upload images from your computer:*'
+            }
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '*Step 1: Find the paperclip icon* 📎\nLook for the paperclip (attachment) icon in the Slack message input area.'
+            }
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '*Step 2: Click "Your computer"* 💻\nSelect "Upload from computer" or "Your computer" option.'
+            }
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '*Step 3: Choose your images* 🖼️\nSelect one or more images (JPG, PNG, GIF, etc.) from your computer.'
+            }
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '*Step 4: Upload to this channel* 📤\nMake sure to upload them to this channel or DM where ProfileMagic can see them.'
+            }
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '*Step 5: Run `/boo` again* 🔄\nAfter uploading, close this modal and try `/boo add a hat` again. Your new images will appear!'
+            }
+          },
+          {
+            type: 'divider'
+          },
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '*💡 Tips:*\n• You can upload multiple images at once\n• ProfileMagic works with JPG, PNG, GIF formats\n• Images stay private to this conversation\n• Larger images will be automatically resized'
+            }
+          }
+        ],
+        close: {
+          type: 'plain_text',
+          text: 'Got it!'
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error showing upload guide:', error);
+  }
+}
+
+async function handleProfileReferenceToggle({ ack, body, client }) {
+  await ack();
+
+  try {
+    const metadata = JSON.parse(body.view.private_metadata);
+    const { teamId, userId, channelId, profilePhoto } = metadata;
+
+    // Get current form state
+    const currentView = body.view;
+    const isChecked = body.actions[0].selected_options && body.actions[0].selected_options.length > 0;
+
+    // Create new blocks array
+    const blocks = [...currentView.blocks];
+
+    // Find the file input block
+    const fileInputIndex = blocks.findIndex(block => block.block_id === 'file_input');
+
+    if (isChecked && profilePhoto) {
+      // Add profile photo thumbnail after the file input block
+      const thumbnailBlock = {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: '*👤 Your Profile Photo*\n_Will be used as style reference_'
+        },
+        accessory: {
+          type: 'image',
+          image_url: profilePhoto,
+          alt_text: 'Your current profile photo'
+        }
+      };
+
+      // Insert thumbnail after the file input (or replace existing thumbnail)
+      const nextBlockIndex = fileInputIndex + 1;
+      if (nextBlockIndex < blocks.length && blocks[nextBlockIndex].type === 'section' &&
+          blocks[nextBlockIndex].text?.text?.includes('Your Profile Photo')) {
+        // Replace existing thumbnail
+        blocks[nextBlockIndex] = thumbnailBlock;
+      } else {
+        // Insert new thumbnail
+        blocks.splice(nextBlockIndex, 0, thumbnailBlock);
+      }
+    } else {
+      // Remove profile photo thumbnail if unchecked
+      const nextBlockIndex = fileInputIndex + 1;
+      if (nextBlockIndex < blocks.length && blocks[nextBlockIndex].type === 'section' &&
+          blocks[nextBlockIndex].text?.text?.includes('Your Profile Photo')) {
+        blocks.splice(nextBlockIndex, 1);
+      }
+    }
+
+    // Update the view with new blocks
+    await client.views.update({
+      view_id: body.view.id,
+      view: {
+        ...currentView,
+        blocks: blocks
+      }
+    });
+
+  } catch (error) {
+    console.error('Error handling profile reference toggle:', error);
+  }
+}
+
 module.exports = {
   handlePresetSelection,
   handlePreviewAction,
@@ -1093,5 +1677,9 @@ module.exports = {
   handleApproveExtended,
   handleRetryExtended,
   handleOpenExtendedModal,
-  handleMessageShortcut
+  handleMessageShortcut,
+  handleFileSelectionModal,
+  handleProfileOnlyModal,
+  handleUploadGuide,
+  handleProfileReferenceToggle
 };

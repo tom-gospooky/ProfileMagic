@@ -3,13 +3,16 @@ const slackService = require('../services/slack');
 const imageService = require('../services/image');
 const userTokens = require('../services/userTokens');
 const { getOAuthUrl } = require('../services/fileServer');
+const { getUserProfilePhoto } = require('../utils/fileDiscovery');
 
 async function handleSlashCommand({ command, ack, respond, client, body }) {
-  await ack();
-
   const userId = body.user_id;
   const teamId = body.team_id;
+  const channelId = body.channel_id;
   const prompt = command.text?.trim();
+
+  // Acknowledge immediately with no response to open modal instantly
+  await ack();
 
   try {
     // Check if user is authorized to update their profile
@@ -58,13 +61,8 @@ async function handleSlashCommand({ command, ack, respond, client, body }) {
       return;
     }
 
-    // User is authorized, proceed with normal flow
-    if (prompt) {
-      await processDirectPrompt(client, userId, teamId, prompt, body.trigger_id, respond);
-    } else {
-      // Show preset selection modal
-      await showPresetModal(client, body.trigger_id);
-    }
+    // User is authorized, proceed with file selection modal
+    await showFileSelectionModal(client, body.trigger_id, teamId, userId, channelId, prompt);
   } catch (error) {
     console.error('Error in slash command:', error);
     await respond({
@@ -222,9 +220,253 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
   });
 }
 
+async function showFileSelectionModal(client, triggerId, teamId, userId, channelId, prompt = '') {
+  try {
+    // Get user profile photo for optional reference
+    const profilePhoto = await getUserProfilePhoto(client, userId);
+
+    const modal = {
+      type: 'modal',
+      callback_id: 'file_selection_modal',
+      title: {
+        type: 'plain_text',
+        text: 'ProfileMagic ✨'
+      },
+      blocks: [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: '*🎨 Transform images with AI!*\n\nUpload images from your computer and describe how you want them changed.'
+          }
+        },
+        {
+          type: 'input',
+          block_id: 'prompt_input',
+          element: {
+            type: 'plain_text_input',
+            action_id: 'prompt_text',
+            placeholder: {
+              type: 'plain_text',
+              text: 'E.g., "add sunglasses", "cartoon style", "vintage filter"'
+            },
+            initial_value: prompt || '',
+            multiline: false
+          },
+          label: {
+            type: 'plain_text',
+            text: 'Describe your transformation:'
+          }
+        },
+        {
+          type: 'input',
+          block_id: 'file_input',
+          element: {
+            type: 'file_input',
+            action_id: 'image_files',
+            filetypes: ['jpg', 'jpeg', 'png', 'gif', 'webp'],
+            max_files: 5
+          },
+          label: {
+            type: 'plain_text',
+            text: 'Upload images to transform:'
+          }
+        }
+      ],
+      submit: {
+        type: 'plain_text',
+        text: 'Transform Images'
+      },
+      close: {
+        type: 'plain_text',
+        text: 'Cancel'
+      },
+      private_metadata: JSON.stringify({ teamId, userId, channelId, profilePhoto: profilePhoto ? profilePhoto : null })
+    };
+
+    // Add profile photo option if available
+    if (profilePhoto) {
+      modal.blocks.push({
+        type: 'input',
+        block_id: 'profile_reference',
+        element: {
+          type: 'checkboxes',
+          action_id: 'use_profile_reference',
+          options: [{
+            text: {
+              type: 'plain_text',
+              text: 'Use my current profile photo as style reference',
+              emoji: true
+            },
+            value: 'include_profile_reference'
+          }]
+        },
+        label: {
+          type: 'plain_text',
+          text: 'Optional reference:'
+        },
+        optional: true
+      });
+    }
+
+    await client.views.open({
+      trigger_id: triggerId,
+      view: modal
+    });
+
+  } catch (error) {
+    console.error('Error showing file selection modal:', error);
+    // Fallback to profile-only edit
+    if (profilePhoto) {
+      await showProfileOnlyModal(client, triggerId, teamId, userId, channelId, prompt);
+    } else {
+      await showNoImagesModal(client, triggerId, prompt);
+    }
+  }
+}
+
+async function showNoImagesModal(client, triggerId, prompt = '') {
+  const modal = {
+    type: 'modal',
+    callback_id: 'no_images_modal',
+    title: {
+      type: 'plain_text',
+      text: 'Upload Images First 📸'
+    },
+    blocks: [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: '*No recent images found!*\n\nTo use ProfileMagic, you need to upload some images first:'
+        }
+      },
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: '*How to upload images:*\n\n1. 📎 Click the paperclip icon in Slack\n2. 🖼️ Select \"Upload from computer\"\n3. 🎯 Choose your images (JPG, PNG, etc.)\n4. 📤 Upload them to this channel or DM\n5. 🔄 Try `/boo` command again'
+        }
+      },
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: '*💡 Pro tip:* Make sure ProfileMagic bot is in any channel where you upload images, or upload directly to this DM.'
+        }
+      },
+      {
+        type: 'divider'
+      },
+      {
+        type: 'input',
+        block_id: 'prompt_input',
+        element: {
+          type: 'plain_text_input',
+          action_id: 'prompt_text',
+          placeholder: {
+            type: 'plain_text',
+            text: 'E.g., "make it cartoon style", "add sunglasses", "vintage filter"'
+          },
+          initial_value: prompt || '',
+          multiline: false
+        },
+        label: {
+          type: 'plain_text',
+          text: 'Save your edit idea for when you upload images:'
+        },
+        optional: true
+      }
+    ],
+    close: {
+      type: 'plain_text',
+      text: 'Got it'
+    }
+  };
+
+  await client.views.open({
+    trigger_id: triggerId,
+    view: modal
+  });
+}
+
+async function showProfileOnlyModal(client, triggerId, teamId, userId, channelId, prompt = '') {
+  const modal = {
+    type: 'modal',
+    callback_id: 'profile_only_modal',
+    title: {
+      type: 'plain_text',
+      text: 'Edit Profile Photo'
+    },
+    blocks: [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: '*Transform your profile photo with AI! 🎨*\n\nI found your profile photo. You can edit it, or upload more images first.'
+        }
+      },
+      {
+        type: 'input',
+        block_id: 'prompt_input',
+        element: {
+          type: 'plain_text_input',
+          action_id: 'prompt_text',
+          placeholder: {
+            type: 'plain_text',
+            text: 'E.g., "add sunglasses", "make it cartoon style", "vintage filter"'
+          },
+          initial_value: prompt || '',
+          multiline: false
+        },
+        label: {
+          type: 'plain_text',
+          text: 'How should I edit your profile photo?'
+        }
+      },
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: '*📷 Profile Photo Found*\nI\'ll use your current profile photo for editing.'
+        }
+      },
+      {
+        type: 'divider'
+      },
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: '*Want to edit other images?*\n\n📎 Upload images to this channel first, then try `/boo` again to see them in the selection menu.'
+        }
+      }
+    ],
+    submit: {
+      type: 'plain_text',
+      text: 'Edit Profile Photo'
+    },
+    close: {
+      type: 'plain_text',
+      text: 'Cancel'
+    },
+    private_metadata: JSON.stringify({
+      teamId,
+      userId,
+      channelId,
+      profilePhoto: true
+    })
+  };
+
+  await client.views.open({
+    trigger_id: triggerId,
+    view: modal
+  });
+}
+
 async function showPresetModal(client, triggerId) {
   const presets = getAllPresets();
-  
+
   const presetOptions = presets.map(preset => ({
     text: {
       type: 'plain_text',

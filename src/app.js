@@ -45,6 +45,8 @@ app.view('preset_selection_modal', interactiveHandler.handlePresetSelection);
 app.view('preview_modal', interactiveHandler.handlePreviewAction);
 app.view('reference_image_modal', interactiveHandler.handleReferenceImageSubmission);
 app.view('boo_ext_modal', extendedCommandHandler.handleExtendedModalSubmission);
+app.view('file_selection_modal', interactiveHandler.handleFileSelectionModal);
+app.view('profile_only_modal', interactiveHandler.handleProfileOnlyModal);
 app.action('select_preset', interactiveHandler.handlePresetSelect);
 app.action('approve_edit', interactiveHandler.handleApprove);
 app.action('retry_edit', interactiveHandler.handleRetry);
@@ -55,6 +57,8 @@ app.action('use_reference_image', interactiveHandler.handleReferenceImageModal);
 app.action('approve_ext_edit', interactiveHandler.handleApproveExtended);
 app.action('retry_ext_edit', interactiveHandler.handleRetryExtended);
 app.action('open_extended_modal', interactiveHandler.handleOpenExtendedModal);
+app.action('show_upload_guide', interactiveHandler.handleUploadGuide);
+app.action('use_profile_reference', interactiveHandler.handleProfileReferenceToggle);
 
 // Message shortcut handlers
 app.shortcut('banana', interactiveHandler.handleMessageShortcut);
