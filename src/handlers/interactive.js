@@ -1079,8 +1079,6 @@ async function handleMessageShortcut({ ack, shortcut, client }) {
 }
 
 async function handleFileSelectionModal({ ack, body, view, client }) {
-  await ack();
-
   const userId = body.user.id;
 
   try {
@@ -1093,22 +1091,51 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
     const uploadedFiles = view.state.values.file_input?.image_files?.files || [];
     const useProfileRef = view.state.values.profile_reference?.use_profile_reference?.selected_options || [];
 
+    // Validate inputs BEFORE acknowledging
     if (!promptValue) {
-      return await client.chat.postEphemeral({
-        channel: channelId,
-        user: userId,
-        text: '❌ Please enter a prompt describing how you want to transform your images.'
+      return await ack({
+        response_action: 'errors',
+        errors: {
+          'prompt_input': 'Please enter a prompt describing how you want to transform your images.'
+        }
       });
     }
 
     if (!uploadedFiles || uploadedFiles.length === 0) {
-      return await client.chat.postEphemeral({
-        channel: channelId,
-        user: userId,
-        text: '❌ Please upload at least one image to transform.'
+      return await ack({
+        response_action: 'errors',
+        errors: {
+          'file_input': 'Please upload at least one image to transform.'
+        }
       });
     }
 
+    // Validation passed - acknowledge and close modal
+    await ack({
+      response_action: 'clear'
+    });
+
+    // Process asynchronously AFTER modal is acknowledged
+    processImagesAsync(client, userId, channelId, promptValue, uploadedFiles, useProfileRef, profilePhoto);
+
+  } catch (error) {
+    console.error('File selection modal error:', error);
+    // If we haven't ack'd yet, send error response
+    try {
+      await ack({
+        response_action: 'errors',
+        errors: {
+          "prompt_input": "Something went wrong. Please try again."
+        }
+      });
+    } catch (ackError) {
+      console.error('Failed to ack modal with error:', ackError);
+    }
+  }
+}
+
+async function processImagesAsync(client, userId, channelId, promptValue, uploadedFiles, useProfileRef, profilePhoto) {
+  try {
     // Determine reference image URL
     let referenceImageUrl = null;
     if (useProfileRef.length > 0 && profilePhoto) {
@@ -1119,7 +1146,7 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
     console.log(`Reference image: ${referenceImageUrl ? 'Yes (profile photo)' : 'No'}`);
     console.log(`Target channel: ${channelId}, User: ${userId}`);
 
-    // Close modal immediately and send processing message (always private initially)
+    // Send processing message (always private initially)
     let processingMsg;
     try {
       processingMsg = await client.chat.postEphemeral({
@@ -1130,7 +1157,16 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
       console.log('Processing message sent successfully:', processingMsg);
     } catch (msgError) {
       console.error('Error sending processing message:', msgError);
-      throw msgError;
+      // Fallback to DM
+      try {
+        processingMsg = await client.chat.postMessage({
+          channel: userId,
+          text: `🎨 *Processing ${uploadedFiles.length} image${uploadedFiles.length === 1 ? '' : 's'}...*\n*Prompt:* "${promptValue}"\n\nYour results will appear here shortly!`
+        });
+      } catch (dmError) {
+        console.error('Failed to send processing message via DM:', dmError);
+        return;
+      }
     }
 
     // Get file URLs for processing
@@ -1153,16 +1189,16 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
     }
 
     if (imageUrls.length === 0) {
-      return await client.chat.postEphemeral({
+      await client.chat.postEphemeral({
         channel: channelId,
         user: userId,
         text: '❌ Could not access the uploaded files. Please try again.'
       });
+      return;
     }
 
-    // Process images in background and update processing message
-    setTimeout(async () => {
-      try {
+    // Process images directly (no setTimeout needed)
+    try {
         let results = [];
 
         if (imageUrls.length === 1) {
@@ -1322,11 +1358,10 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
           text: errorMessage,
           blocks: errorBlocks
         });
-      }
-    }, 100); // Small delay to ensure modal closes first
+    }
 
   } catch (error) {
-    console.error('File selection modal error:', error);
+    console.error('Image processing error:', error);
 
     let errorMessage = '❌ Failed to process your images. Please try again.';
 
@@ -1336,11 +1371,8 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
       errorMessage = `⚠️ **Generation Failed**\n\n${error.userMessage}`;
     }
 
-    // Send error message as ephemeral
+    // Send error message to user
     try {
-      const metadata = JSON.parse(view.private_metadata);
-      const { channelId } = metadata;
-
       await client.chat.postEphemeral({
         channel: channelId,
         user: userId,
@@ -1348,11 +1380,10 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
       });
     } catch (messageError) {
       console.error('Failed to send error message:', messageError);
-      // Final fallback - try to send a simple ephemeral message
+      // Final fallback - try to send DM
       try {
-        await client.chat.postEphemeral({
+        await client.chat.postMessage({
           channel: userId,
-          user: userId,
           text: '❌ Something went wrong. Please try again.'
         });
       } catch (finalError) {
