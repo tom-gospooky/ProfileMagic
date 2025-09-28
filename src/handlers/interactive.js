@@ -1099,38 +1099,18 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
     const destination = view.state.values.result_destination?.destination_choice?.selected_option?.value || 'private';
 
     if (!promptValue) {
-      return await client.views.update({
-        view_id: body.view.id,
-        view: {
-          type: 'modal',
-          title: { type: 'plain_text', text: 'Missing Prompt' },
-          blocks: [{
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: '❌ Please enter a prompt describing how you want to transform your images.'
-            }
-          }],
-          close: { type: 'plain_text', text: 'Close' }
-        }
+      return await client.chat.postEphemeral({
+        channel: channelId,
+        user: userId,
+        text: '❌ Please enter a prompt describing how you want to transform your images.'
       });
     }
 
     if (!uploadedFiles || uploadedFiles.length === 0) {
-      return await client.views.update({
-        view_id: body.view.id,
-        view: {
-          type: 'modal',
-          title: { type: 'plain_text', text: 'No Files Uploaded' },
-          blocks: [{
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: '❌ Please upload at least one image to transform.'
-            }
-          }],
-          close: { type: 'plain_text', text: 'Close' }
-        }
+      return await client.chat.postEphemeral({
+        channel: channelId,
+        user: userId,
+        text: '❌ Please upload at least one image to transform.'
       });
     }
 
@@ -1140,29 +1120,37 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
       referenceImageUrl = profilePhoto;
     }
 
-    if (!isProduction) {
-      console.log(`Processing ${uploadedFiles.length} uploaded files with prompt: "${promptValue}"`);
-      console.log(`Reference image: ${referenceImageUrl ? 'Yes (profile photo)' : 'No'}`);
-      console.log(`Results destination: ${destination}`);
-    }
+    console.log(`Processing ${uploadedFiles.length} uploaded files with prompt: "${promptValue}"`);
+    console.log(`Reference image: ${referenceImageUrl ? 'Yes (profile photo)' : 'No'}`);
+    console.log(`Results destination: ${destination}`);
+    console.log(`Target channel: ${channelId}, User: ${userId}`);
 
     // Close modal immediately and send processing message
     const targetChannel = destination === 'channel' ? channelId : userId;
     const isPrivate = destination === 'private';
 
+    console.log(`Sending ${isPrivate ? 'ephemeral' : 'public'} processing message to channel: ${targetChannel}`);
+
     // Send initial processing message
     let processingMsg;
-    if (isPrivate) {
-      processingMsg = await client.chat.postEphemeral({
-        channel: channelId,
-        user: userId,
-        text: `🎨 *Processing ${uploadedFiles.length} image${uploadedFiles.length === 1 ? '' : 's'}...*\n*Prompt:* "${promptValue}"\n\nYour results will appear here shortly!`
-      });
-    } else {
-      processingMsg = await client.chat.postMessage({
-        channel: targetChannel,
-        text: `🎨 *<@${userId}> is transforming ${uploadedFiles.length} image${uploadedFiles.length === 1 ? '' : 's'}...*\n*Prompt:* "${promptValue}"\n\nResults coming soon!`
-      });
+    try {
+      if (isPrivate) {
+        processingMsg = await client.chat.postEphemeral({
+          channel: channelId,
+          user: userId,
+          text: `🎨 *Processing ${uploadedFiles.length} image${uploadedFiles.length === 1 ? '' : 's'}...*\n*Prompt:* "${promptValue}"\n\nYour results will appear here shortly!`
+        });
+        console.log(`Ephemeral processing message sent successfully:`, processingMsg);
+      } else {
+        processingMsg = await client.chat.postMessage({
+          channel: targetChannel,
+          text: `🎨 *<@${userId}> is transforming ${uploadedFiles.length} image${uploadedFiles.length === 1 ? '' : 's'}...*\n*Prompt:* "${promptValue}"\n\nResults coming soon!`
+        });
+        console.log(`Public processing message sent successfully:`, processingMsg);
+      }
+    } catch (msgError) {
+      console.error('Error sending processing message:', msgError);
+      throw msgError;
     }
 
     // Get file URLs for processing
@@ -1185,20 +1173,10 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
     }
 
     if (imageUrls.length === 0) {
-      return await client.views.update({
-        view_id: body.view.id,
-        view: {
-          type: 'modal',
-          title: { type: 'plain_text', text: 'File Access Error' },
-          blocks: [{
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: '❌ Could not access the uploaded files. Please try again.'
-            }
-          }],
-          close: { type: 'plain_text', text: 'Close' }
-        }
+      return await client.chat.postEphemeral({
+        channel: channelId,
+        user: userId,
+        text: '❌ Could not access the uploaded files. Please try again.'
       });
     }
 
