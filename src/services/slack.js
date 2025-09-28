@@ -95,15 +95,14 @@ async function updateProfilePhoto(botClient, userId, teamId, imageUrl) {
     return result;
   } catch (error) {
     console.error('Profile photo update error:', error.message);
+    try { const { logSlackError } = require('../utils/logging'); logSlackError('users.setPhoto', error); } catch(_) {}
     
     // Handle the case where user needs to authorize
     if (error.message === 'USER_NOT_AUTHORIZED') {
       throw error;
     }
     
-    if (error.data) {
-      console.error('Slack API error data:', error.data);
-    }
+    // Already logged a sanitized payload above
     
     // Handle specific Slack API errors
     if (error.data?.error === 'missing_scope') {

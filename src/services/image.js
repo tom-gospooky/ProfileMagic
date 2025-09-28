@@ -1,6 +1,7 @@
 const { GoogleGenAI } = require('@google/genai');
 const slackService = require('./slack');
 const fileServer = require('./fileServer');
+const { logSlackError } = require('../utils/logging');
 
 // Helper function to convert Buffer to the format Gemini expects
 const bufferToPart = (buffer) => {
@@ -72,7 +73,8 @@ const handleApiResponse = async (response, context = 'edit', client, userId, cha
       
     } catch (uploadError) {
       console.error('Slack upload failed, using local fallback');
-      if (!isProduction) console.error('Upload error details:', uploadError.data || uploadError.message);
+      // Log a sanitized error payload even in production
+      logSlackError('files.uploadV2', uploadError);
       
       // Fallback to local file
       const fileUrl = await fileServer.saveTemporaryFile(imageBuffer, filename);

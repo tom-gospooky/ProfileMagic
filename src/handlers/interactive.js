@@ -1199,7 +1199,12 @@ async function sendMessageRobust(client, channelId, userId, text, blocks = undef
       }
       return result;
     } catch (error) {
-      console.log(`❌ ${method.name} failed:`, error.data?.error || error.message);
+      try {
+        const { logSlackError } = require('../utils/logging');
+        logSlackError(`sendMessageRobust:${method.name}`, error);
+      } catch (_) {
+        console.log(`❌ ${method.name} failed:`, error.data?.error || error.message);
+      }
       continue;
     }
   }
@@ -1430,7 +1435,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
             });
             console.log('✅ Results updated in processing message');
           } catch (updateError) {
-            console.log('❌ Failed to update processing message:', updateError.message);
+            try { const { logSlackError } = require('../utils/logging'); logSlackError('chat.update(results)', updateError); } catch(_) { console.log('❌ Failed to update processing message:', updateError.message); }
             // Fallback: send new message
             await sendMessageRobust(client, channelId, userId, successText, resultBlocks);
           }
@@ -1465,7 +1470,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
               blocks: errorBlocks
             });
           } catch (updateError) {
-            console.log('❌ Failed to update processing message with error:', updateError.message);
+            try { const { logSlackError } = require('../utils/logging'); logSlackError('chat.update(error)', updateError); } catch(_) { console.log('❌ Failed to update processing message with error:', updateError.message); }
             await sendMessageRobust(client, channelId, userId, errorMessage, errorBlocks);
           }
         } else {
