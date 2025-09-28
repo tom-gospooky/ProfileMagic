@@ -1188,7 +1188,8 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
       console.log('Processing message sent successfully:', processingMsg);
     } catch (msgError) {
       console.error('Error sending processing message:', msgError);
-      return;
+      console.log('⚠️ Continuing with processing despite message failure...');
+      // Continue processing even if message fails - user will see results via global error handler
     }
 
     // Get file URLs for processing
