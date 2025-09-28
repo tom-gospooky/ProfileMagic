@@ -205,8 +205,13 @@ function startCleanupJob(dir, maxAgeMs = 30 * 60 * 1000) {
 
 // Utility functions for file management
 function getFileUrl(filename) {
-  const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
-  return `${baseUrl}/files/${filename}`;
+  // Railway sets RAILWAY_STATIC_URL, or we can construct from other env vars
+  const baseUrl = process.env.BASE_URL ||
+                  process.env.RAILWAY_STATIC_URL ||
+                  `https://profilemagic-production.up.railway.app`;
+  const fileUrl = `${baseUrl}/files/${filename}`;
+  console.log(`Generated file URL: ${fileUrl}`);
+  return fileUrl;
 }
 
 function getOAuthRedirectUrl() {

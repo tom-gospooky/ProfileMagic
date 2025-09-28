@@ -52,6 +52,7 @@ const handleApiResponse = async (response, context = 'edit', client, userId) => 
     
     // Upload to Slack for proper display
     try {
+      if (!isProduction) console.log(`Attempting Slack upload to channel: ${channelId || userId}`);
       const uploadResult = await client.files.uploadV2({
         channel_id: channelId || userId, // Use channelId if provided, fallback to userId
         file: imageBuffer,
@@ -71,6 +72,7 @@ const handleApiResponse = async (response, context = 'edit', client, userId) => 
       
     } catch (uploadError) {
       console.error('Slack upload failed, using local fallback');
+      if (!isProduction) console.error('Upload error details:', uploadError.data || uploadError.message);
       
       // Fallback to local file
       const fileUrl = await fileServer.saveTemporaryFile(imageBuffer, filename);
