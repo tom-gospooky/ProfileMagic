@@ -1222,13 +1222,13 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
   let processingChannel = null;
 
   try {
-    // Determine reference image URL - fetch fresh instead of relying on passed data
-    let referenceImageUrl = null;
+    // Determine profile photo to include if requested
+    let profileImageUrl = null;
     if (useProfileRef.length > 0) {
       console.log('🔄 Fetching fresh profile photo...');
       const slackService = require('../services/slack');
-      referenceImageUrl = await slackService.getCurrentProfilePhoto(client, userId);
-      if (!referenceImageUrl) {
+      profileImageUrl = await slackService.getCurrentProfilePhoto(client, userId);
+      if (!profileImageUrl) {
         console.error('❌ Failed to fetch current profile photo');
       } else {
         console.log('✅ Fresh profile photo retrieved successfully');
@@ -1236,20 +1236,21 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
     }
 
     console.log(`Processing ${uploadedFiles?.length || 0} uploaded files with prompt: "${promptValue}"`);
-    console.log(`Reference image: ${referenceImageUrl ? 'Yes (profile photo)' : 'No'}`);
+    console.log(`Include profile photo: ${profileImageUrl ? 'Yes' : 'No'}`);
     console.log(`Target channel: ${channelId}, User: ${userId}`);
 
     // Send processing message using robust cascade approach
-    const imageCount = uploadedFiles.length || (referenceImageUrl ? 1 : 0);
-    const text = `🎨 *Processing ${imageCount} image${imageCount === 1 ? '' : 's'}...*\n*Prompt:* "${promptValue}"\n\nYour results will appear here shortly!`;
+    // We will process each image individually; message shows total count
+    const plannedSourcesCount = (uploadedFiles?.length || 0) + (profileImageUrl ? 1 : 0);
+    const text = `🎨 *Processing ${plannedSourcesCount} image${plannedSourcesCount === 1 ? '' : 's'}...*\n*Prompt:* "${promptValue}"\n\nYour results will appear here shortly!`;
 
     console.log('📤 Attempting to send processing message...');
     processingMsg = await sendMessageRobust(client, channelId, userId, text);
     processingTs = processingMsg?.ts || processingMsg?.message_ts || null;
     processingChannel = processingMsg?.channel || channelId;
 
-    // Get file URLs for processing
-    let imageUrls = [];
+    // Build sources for processing (uploaded + optional profile)
+    let sources = [];
     for (const file of uploadedFiles) {
       try {
         // Get file info from Slack
@@ -1258,78 +1259,50 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
         });
 
         if (fileInfo.file && fileInfo.file.url_private_download) {
-          imageUrls.push(fileInfo.file.url_private_download);
+          sources.push({ url: fileInfo.file.url_private_download, name: file.name || 'uploaded_image' });
         } else if (fileInfo.file && fileInfo.file.url_private) {
-          imageUrls.push(fileInfo.file.url_private);
+          sources.push({ url: fileInfo.file.url_private, name: file.name || 'uploaded_image' });
         }
       } catch (fileError) {
         console.error(`Failed to get info for file ${file.id}:`, fileError.message);
       }
     }
 
-    // If no uploaded files but we have profile photo, that's ok
-    if (imageUrls.length === 0 && !referenceImageUrl) {
+    // If profile selected, ensure it is included and enforce a total max
+    const MAX_TOTAL_IMAGES = 5;
+    if (profileImageUrl) {
+      if (sources.length >= MAX_TOTAL_IMAGES) {
+        const originalCount = sources.length;
+        sources = sources.slice(0, MAX_TOTAL_IMAGES - 1);
+        console.log(`✂️ Trimmed uploaded images from ${originalCount} to ${sources.length} to include profile photo`);
+      }
+      sources.push({ url: profileImageUrl, name: 'profile_photo', isProfile: true });
+    }
+
+    // Validate we have at least one image to process
+    if (sources.length === 0) {
       await sendMessageRobust(client, channelId, userId, '❌ Could not access any images to process. Please try again.');
       return;
     }
 
-    // Ensure reference is always included with uploaded images. If a model imposes
-    // a max images-per-call limit, reserve one slot for the profile reference.
-    // We process images one-by-one, but this keeps semantics clear and future proof.
-    const MODEL_MAX_IMAGES_PER_CALL = 2; // base + reference
-    if (referenceImageUrl && imageUrls.length > 0 && imageUrls.length + 1 > MODEL_MAX_IMAGES_PER_CALL) {
-      const originalCount = imageUrls.length;
-      imageUrls = imageUrls.slice(0, MODEL_MAX_IMAGES_PER_CALL - 1);
-      console.log(`✂️ Trimmed uploaded images from ${originalCount} to ${imageUrls.length} to include profile reference`);
-    }
 
     // Process images directly (no setTimeout needed)
     try {
         let results = [];
 
-        if (imageUrls.length === 0 && referenceImageUrl) {
-          // Profile photo only processing
-          try {
-            const result = await imageService.editImage(referenceImageUrl, promptValue, client, userId, null, channelId);
-            results.push({
-              success: true,
-              result: result,
-              index: 0,
-              originalFile: { name: 'profile_photo' }
-            });
-          } catch (error) {
-            results.push({
-              success: false,
-              error: error.message,
-              index: 0,
-              originalFile: { name: 'profile_photo' }
-            });
-          }
-        } else if (imageUrls.length === 1) {
+        if (sources.length === 1) {
           // Single image processing
           try {
-            const result = await imageService.editImage(imageUrls[0], promptValue, client, userId, referenceImageUrl, channelId);
-            results.push({
-              success: true,
-              result: result,
-              index: 0,
-              originalFile: { name: uploadedFiles[0].name || 'uploaded_image' }
-            });
+            const result = await imageService.editImage(sources[0].url, promptValue, client, userId, null, channelId);
+            results.push({ success: true, result, index: 0, originalFile: { name: sources[0].name } });
           } catch (error) {
-            results.push({
-              success: false,
-              error: error.message,
-              index: 0,
-              originalFile: { name: uploadedFiles[0].name || 'uploaded_image' }
-            });
+            results.push({ success: false, error: error.message, index: 0, originalFile: { name: sources[0].name } });
           }
         } else {
-          // Multiple image processing
-          const batchResult = await imageService.editMultipleImages(imageUrls, promptValue, client, userId, referenceImageUrl, channelId);
-          results = batchResult.results.map((r, index) => ({
-            ...r,
-            originalFile: { name: uploadedFiles[index]?.name || `uploaded_image_${index + 1}` }
-          }));
+          // Multiple images processed sequentially
+          const urls = sources.map(s => s.url);
+          const batchResult = await imageService.editMultipleImages(urls, promptValue, client, userId, null, channelId);
+          results = batchResult.results.map((r, index) => ({ ...r, originalFile: { name: sources[index]?.name || `image_${index + 1}` } }));
         }
 
         // Build result blocks
