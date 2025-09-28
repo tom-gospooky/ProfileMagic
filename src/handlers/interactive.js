@@ -1120,7 +1120,16 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
     });
 
     // Process asynchronously AFTER modal is acknowledged
-    processImagesAsync(client, userId, channelId, promptValue, uploadedFiles, useProfileRef, profilePhoto);
+    processImagesAsync(client, userId, channelId, promptValue, uploadedFiles, useProfileRef, profilePhoto)
+      .catch(error => {
+        console.error('Critical error in background processing:', error);
+        // Try to send error message to user
+        client.chat.postEphemeral({
+          channel: channelId,
+          user: userId,
+          text: '❌ Something went wrong with image processing. Please try again.'
+        }).catch(msgError => console.error('Failed to send error message:', msgError));
+      });
 
   } catch (error) {
     console.error('File selection modal error:', error);
@@ -1139,6 +1148,9 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
 }
 
 async function processImagesAsync(client, userId, channelId, promptValue, uploadedFiles, useProfileRef, profilePhoto) {
+  console.log('🚀 processImagesAsync STARTED');
+  console.log('Parameters:', { userId, channelId, promptValue, uploadedFilesCount: uploadedFiles?.length || 0, useProfileRefCount: useProfileRef?.length || 0, hasProfilePhoto: !!profilePhoto });
+
   try {
     // Determine reference image URL
     let referenceImageUrl = null;
@@ -1146,17 +1158,19 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
       referenceImageUrl = profilePhoto;
     }
 
-    console.log(`Processing ${uploadedFiles.length} uploaded files with prompt: "${promptValue}"`);
+    console.log(`Processing ${uploadedFiles?.length || 0} uploaded files with prompt: "${promptValue}"`);
     console.log(`Reference image: ${referenceImageUrl ? 'Yes (profile photo)' : 'No'}`);
     console.log(`Target channel: ${channelId}, User: ${userId}`);
 
     // Send processing message (always private initially)
+    const imageCount = uploadedFiles.length || (referenceImageUrl ? 1 : 0);
     let processingMsg;
     try {
+      console.log('📤 Attempting to send processing message...');
       processingMsg = await client.chat.postEphemeral({
         channel: channelId,
         user: userId,
-        text: `🎨 *Processing ${uploadedFiles.length} image${uploadedFiles.length === 1 ? '' : 's'}...*\n*Prompt:* "${promptValue}"\n\nYour results will appear here shortly!`
+        text: `🎨 *Processing ${imageCount} image${imageCount === 1 ? '' : 's'}...*\n*Prompt:* "${promptValue}"\n\nYour results will appear here shortly!`
       });
       console.log('Processing message sent successfully:', processingMsg);
     } catch (msgError) {

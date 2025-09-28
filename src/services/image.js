@@ -104,8 +104,8 @@ const handleApiResponse = async (response, context = 'edit', client, userId) => 
   const textFeedback = response.text?.trim();
   const errorMessage = `The AI model did not return an image for the ${context}. ` + 
       (textFeedback 
-          ? `The model responded with text: "${textFeedback}"`
-          : "This can happen due to safety filters or if the request is too complex. Please try rephrasing your prompt to be more direct.");
+        ? `The model responded with text: "${textFeedback}"`
+        : 'This can happen due to safety filters or if the request is too complex. Please try rephrasing your prompt to be more direct.');
 
   console.error(`No image in API response for ${context}`);
   throw new Error(errorMessage);
@@ -119,7 +119,7 @@ async function editImage(imageUrl, prompt, client, userId, referenceImageUrl = n
     if (referenceImageUrl && !isProduction) console.log(`Using reference image: ${referenceImageUrl}`);
     
     // Initialize Gemini AI
-    const ai = new GoogleGenAI(process.env.API_KEY);
+    const ai = new GoogleGenAI(process.env.GEMINI_API_KEY);
     
     // Debug: log available methods (dev only)
     if (!isProduction) {
