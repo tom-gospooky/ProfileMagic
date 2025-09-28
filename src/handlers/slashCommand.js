@@ -309,6 +309,46 @@ async function showFileSelectionModal(client, triggerId, teamId, userId, channel
       });
     }
 
+    // Add destination option
+    modal.blocks.push({
+      type: 'input',
+      block_id: 'result_destination',
+      element: {
+        type: 'radio_buttons',
+        action_id: 'destination_choice',
+        options: [
+          {
+            text: {
+              type: 'plain_text',
+              text: '🔒 Send results privately (only you can see)',
+              emoji: true
+            },
+            value: 'private'
+          },
+          {
+            text: {
+              type: 'plain_text',
+              text: '📢 Send results to this channel',
+              emoji: true
+            },
+            value: 'channel'
+          }
+        ],
+        initial_option: {
+          text: {
+            type: 'plain_text',
+            text: '🔒 Send results privately (only you can see)',
+            emoji: true
+          },
+          value: 'private'
+        }
+      },
+      label: {
+        type: 'plain_text',
+        text: 'Where should results be sent?'
+      }
+    });
+
     await client.views.open({
       trigger_id: triggerId,
       view: modal

@@ -1096,6 +1096,7 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
     const promptValue = view.state.values.prompt_input?.prompt_text?.value?.trim();
     const uploadedFiles = view.state.values.file_input?.image_files?.files || [];
     const useProfileRef = view.state.values.profile_reference?.use_profile_reference?.selected_options || [];
+    const destination = view.state.values.result_destination?.destination_choice?.selected_option?.value || 'private';
 
     if (!promptValue) {
       return await client.views.update({
@@ -1142,24 +1143,27 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
     if (!isProduction) {
       console.log(`Processing ${uploadedFiles.length} uploaded files with prompt: "${promptValue}"`);
       console.log(`Reference image: ${referenceImageUrl ? 'Yes (profile photo)' : 'No'}`);
+      console.log(`Results destination: ${destination}`);
     }
 
-    // Show processing modal
-    await client.views.update({
-      view_id: body.view.id,
-      view: {
-        type: 'modal',
-        title: { type: 'plain_text', text: 'Processing...' },
-        blocks: [{
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: `🎨 *Transforming ${uploadedFiles.length} image${uploadedFiles.length === 1 ? '' : 's'}...*\n\n*Prompt:* "${promptValue}"\n\nThis may take a moment!`
-          }
-        }],
-        close: { type: 'plain_text', text: 'Close' }
-      }
-    });
+    // Close modal immediately and send processing message
+    const targetChannel = destination === 'channel' ? channelId : userId;
+    const isPrivate = destination === 'private';
+
+    // Send initial processing message
+    let processingMsg;
+    if (isPrivate) {
+      processingMsg = await client.chat.postEphemeral({
+        channel: channelId,
+        user: userId,
+        text: `🎨 *Processing ${uploadedFiles.length} image${uploadedFiles.length === 1 ? '' : 's'}...*\n*Prompt:* "${promptValue}"\n\nYour results will appear here shortly!`
+      });
+    } else {
+      processingMsg = await client.chat.postMessage({
+        channel: targetChannel,
+        text: `🎨 *<@${userId}> is transforming ${uploadedFiles.length} image${uploadedFiles.length === 1 ? '' : 's'}...*\n*Prompt:* "${promptValue}"\n\nResults coming soon!`
+      });
+    }
 
     // Get file URLs for processing
     const imageUrls = [];
@@ -1198,129 +1202,190 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
       });
     }
 
-    // Process images
-    let results = [];
-
-    if (imageUrls.length === 1) {
-      // Single image processing
+    // Process images in background and update processing message
+    setTimeout(async () => {
       try {
-        const result = await imageService.editImage(imageUrls[0], promptValue, client, userId, referenceImageUrl);
-        results.push({
-          success: true,
-          result: result,
-          index: 0,
-          originalFile: { name: uploadedFiles[0].name || 'uploaded_image' }
-        });
+        let results = [];
+
+        if (imageUrls.length === 1) {
+          // Single image processing
+          try {
+            const result = await imageService.editImage(imageUrls[0], promptValue, client, userId, referenceImageUrl);
+            results.push({
+              success: true,
+              result: result,
+              index: 0,
+              originalFile: { name: uploadedFiles[0].name || 'uploaded_image' }
+            });
+          } catch (error) {
+            results.push({
+              success: false,
+              error: error.message,
+              index: 0,
+              originalFile: { name: uploadedFiles[0].name || 'uploaded_image' }
+            });
+          }
+        } else {
+          // Multiple image processing
+          const batchResult = await imageService.editMultipleImages(imageUrls, promptValue, client, userId, referenceImageUrl);
+          results = batchResult.results.map((r, index) => ({
+            ...r,
+            originalFile: { name: uploadedFiles[index]?.name || `uploaded_image_${index + 1}` }
+          }));
+        }
+
+        // Build result blocks
+        const successful = results.filter(r => r.success);
+        const failed = results.filter(r => !r.success);
+
+        const resultBlocks = [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `✅ *Transformation complete!*\n\n*Prompt:* "${promptValue}"\n*Successful:* ${successful.length}\n*Failed:* ${failed.length}`
+            }
+          }
+        ];
+
+        // Add successful results
+        for (const result of successful) {
+          if (result.result.fileId) {
+            resultBlocks.push({
+              type: 'image',
+              title: {
+                type: 'plain_text',
+                text: `✨ ${result.originalFile.name}`
+              },
+              slack_file: {
+                id: result.result.fileId
+              },
+              alt_text: `AI-transformed ${result.originalFile.name}`
+            });
+          } else if (result.result.localUrl) {
+            resultBlocks.push({
+              type: 'image',
+              title: {
+                type: 'plain_text',
+                text: `✨ ${result.originalFile.name}`
+              },
+              image_url: result.result.localUrl,
+              alt_text: `AI-transformed ${result.originalFile.name}`
+            });
+          }
+        }
+
+        // Add errors if any
+        if (failed.length > 0) {
+          resultBlocks.push({
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `*Failed transformations:*\n${failed.map(f => `• ${f.originalFile.name}: ${f.error}`).join('\n')}`
+            }
+          });
+        }
+
+        // Add action buttons for successful edits
+        if (successful.length > 0) {
+          const actionElements = [];
+
+          // Always add "Try Again" button
+          actionElements.push({
+            type: 'button',
+            text: { type: 'plain_text', text: '🔄 Try Again' },
+            action_id: 'retry_edit'
+          });
+
+          // Add profile picture button for single successful result
+          if (successful.length === 1) {
+            actionElements.unshift({
+              type: 'button',
+              text: { type: 'plain_text', text: '✅ Set as Profile Picture' },
+              style: 'primary',
+              action_id: 'approve_edit',
+              value: JSON.stringify({
+                editedImage: successful[0].result.localUrl,
+                prompt: promptValue
+              })
+            });
+          }
+
+          // Add "Send to Channel" button if results were sent privately
+          if (isPrivate) {
+            actionElements.push({
+              type: 'button',
+              text: { type: 'plain_text', text: '📢 Send to Channel' },
+              action_id: 'send_to_channel',
+              value: JSON.stringify({
+                results: successful.map(result => ({
+                  localUrl: result.result.localUrl,
+                  fileId: result.result.fileId,
+                  filename: result.originalFile.name
+                })),
+                prompt: promptValue,
+                channelId: channelId
+              })
+            });
+          }
+
+          resultBlocks.push({
+            type: 'actions',
+            elements: actionElements
+          });
+        }
+
+        // Update the processing message with results
+        if (isPrivate) {
+          await client.chat.update({
+            channel: channelId,
+            ts: processingMsg.message_ts,
+            text: `✅ *Transformation complete!*\n*Prompt:* "${promptValue}"\n*Successful:* ${successful.length}\n*Failed:* ${failed.length}`,
+            blocks: resultBlocks
+          });
+        } else {
+          await client.chat.update({
+            channel: targetChannel,
+            ts: processingMsg.ts,
+            text: `✅ *<@${userId}>'s transformation complete!*\n*Prompt:* "${promptValue}"\n*Successful:* ${successful.length}\n*Failed:* ${failed.length}`,
+            blocks: resultBlocks
+          });
+        }
+
       } catch (error) {
-        results.push({
-          success: false,
-          error: error.message,
-          index: 0,
-          originalFile: { name: uploadedFiles[0].name || 'uploaded_image' }
-        });
-      }
-    } else {
-      // Multiple image processing
-      const batchResult = await imageService.editMultipleImages(imageUrls, promptValue, client, userId, referenceImageUrl);
-      results = batchResult.results.map((r, index) => ({
-        ...r,
-        originalFile: { name: uploadedFiles[index]?.name || `uploaded_image_${index + 1}` }
-      }));
-    }
+        console.error('Background processing error:', error);
 
-    // Build result modal
-    const successful = results.filter(r => r.success);
-    const failed = results.filter(r => !r.success);
+        let errorMessage = '❌ Failed to process your images. Please try again.';
 
-    const resultBlocks = [
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: `✅ *Transformation complete!*\n\n*Prompt:* "${promptValue}"\n*Successful:* ${successful.length}\n*Failed:* ${failed.length}`
+        if (error.message === 'CONTENT_BLOCKED') {
+          errorMessage = `🚫 **Content Blocked**\n\n${error.userMessage}\n\n*Try different prompts or images.*`;
+        } else if (error.message === 'GENERATION_FAILED') {
+          errorMessage = `⚠️ **Generation Failed**\n\n${error.userMessage}`;
+        }
+
+        // Update the processing message with error
+        const errorBlocks = [{
+          type: 'section',
+          text: { type: 'mrkdwn', text: errorMessage }
+        }];
+
+        if (isPrivate) {
+          await client.chat.update({
+            channel: channelId,
+            ts: processingMsg.message_ts,
+            text: errorMessage,
+            blocks: errorBlocks
+          });
+        } else {
+          await client.chat.update({
+            channel: targetChannel,
+            ts: processingMsg.ts,
+            text: errorMessage,
+            blocks: errorBlocks
+          });
         }
       }
-    ];
-
-    // Add successful results
-    for (const result of successful) {
-      if (result.result.fileId) {
-        resultBlocks.push({
-          type: 'image',
-          title: {
-            type: 'plain_text',
-            text: `✨ ${result.originalFile.name}`
-          },
-          slack_file: {
-            id: result.result.fileId
-          },
-          alt_text: `AI-transformed ${result.originalFile.name}`
-        });
-      } else if (result.result.localUrl) {
-        resultBlocks.push({
-          type: 'image',
-          title: {
-            type: 'plain_text',
-            text: `✨ ${result.originalFile.name}`
-          },
-          image_url: result.result.localUrl,
-          alt_text: `AI-transformed ${result.originalFile.name}`
-        });
-      }
-    }
-
-    // Add errors if any
-    if (failed.length > 0) {
-      resultBlocks.push({
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: `*Failed transformations:*\n${failed.map(f => `• ${f.originalFile.name}: ${f.error}`).join('\n')}`
-        }
-      });
-    }
-
-    // Add action buttons for successful edits
-    if (successful.length > 0) {
-      resultBlocks.push({
-        type: 'actions',
-        elements: successful.length === 1 ? [
-          {
-            type: 'button',
-            text: { type: 'plain_text', text: '✅ Set as Profile Picture' },
-            style: 'primary',
-            action_id: 'approve_edit',
-            value: JSON.stringify({
-              editedImage: successful[0].result.localUrl,
-              prompt: promptValue
-            })
-          },
-          {
-            type: 'button',
-            text: { type: 'plain_text', text: '🔄 Try Again' },
-            action_id: 'retry_edit'
-          }
-        ] : [
-          {
-            type: 'button',
-            text: { type: 'plain_text', text: '🔄 Try Again' },
-            action_id: 'retry_edit'
-          }
-        ]
-      });
-    }
-
-    // Update modal with results
-    await client.views.update({
-      view_id: body.view.id,
-      view: {
-        type: 'modal',
-        callback_id: 'file_selection_results',
-        title: { type: 'plain_text', text: 'Results ✨' },
-        blocks: resultBlocks,
-        close: { type: 'plain_text', text: 'Done' }
-      }
-    });
+    }, 100); // Small delay to ensure modal closes first
 
   } catch (error) {
     console.error('File selection modal error:', error);
@@ -1333,18 +1398,48 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
       errorMessage = `⚠️ **Generation Failed**\n\n${error.userMessage}`;
     }
 
-    await client.views.update({
-      view_id: body.view.id,
-      view: {
-        type: 'modal',
-        title: { type: 'plain_text', text: 'Error' },
-        blocks: [{
-          type: 'section',
-          text: { type: 'mrkdwn', text: errorMessage }
-        }],
-        close: { type: 'plain_text', text: 'Close' }
+    // Send error to chosen destination instead of updating modal
+    try {
+      // Parse metadata for destination info (if modal failed before processing)
+      let destination = 'private';
+      let channelId = userId;
+
+      try {
+        const metadata = JSON.parse(view.private_metadata);
+        channelId = metadata.channelId;
+        destination = view.state.values.result_destination?.destination_choice?.selected_option?.value || 'private';
+      } catch (metaError) {
+        // Fall back to private message if metadata parsing fails
       }
-    });
+
+      const targetChannel = destination === 'channel' ? channelId : userId;
+      const isPrivate = destination === 'private';
+
+      if (isPrivate) {
+        await client.chat.postEphemeral({
+          channel: channelId,
+          user: userId,
+          text: errorMessage
+        });
+      } else {
+        await client.chat.postMessage({
+          channel: targetChannel,
+          text: `<@${userId}> ${errorMessage}`
+        });
+      }
+    } catch (messageError) {
+      console.error('Failed to send error message:', messageError);
+      // Final fallback - try to send a simple ephemeral message
+      try {
+        await client.chat.postEphemeral({
+          channel: userId,
+          user: userId,
+          text: '❌ Something went wrong. Please try again.'
+        });
+      } catch (finalError) {
+        console.error('Final error fallback failed:', finalError);
+      }
+    }
   }
 }
 
@@ -1663,6 +1758,84 @@ async function handleProfileReferenceToggle({ ack, body, client }) {
   }
 }
 
+async function handleSendToChannel({ ack, body, client }) {
+  await ack();
+
+  const userId = body.user.id;
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  try {
+    const payload = JSON.parse(body.actions[0].value);
+    const { results, prompt, channelId } = payload;
+
+    if (!isProduction) {
+      console.log(`Sending ${results.length} results to channel ${channelId}`);
+    }
+
+    // Build message blocks for channel
+    const messageBlocks = [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `🎨 *<@${userId}> shared AI-transformed images*\n\n*Prompt:* "${prompt}"`
+        }
+      }
+    ];
+
+    // Add each successful result
+    for (const result of results) {
+      if (result.fileId) {
+        messageBlocks.push({
+          type: 'image',
+          title: {
+            type: 'plain_text',
+            text: `✨ ${result.filename}`
+          },
+          slack_file: {
+            id: result.fileId
+          },
+          alt_text: `AI-transformed ${result.filename}`
+        });
+      } else if (result.localUrl) {
+        messageBlocks.push({
+          type: 'image',
+          title: {
+            type: 'plain_text',
+            text: `✨ ${result.filename}`
+          },
+          image_url: result.localUrl,
+          alt_text: `AI-transformed ${result.filename}`
+        });
+      }
+    }
+
+    // Send to channel
+    await client.chat.postMessage({
+      channel: channelId,
+      text: `🎨 <@${userId}> shared AI-transformed images using prompt: "${prompt}"`,
+      blocks: messageBlocks
+    });
+
+    // Send confirmation to user
+    await client.chat.postEphemeral({
+      channel: channelId,
+      user: userId,
+      text: `✅ Your transformed images have been shared with the channel!`
+    });
+
+  } catch (error) {
+    console.error('Error sending to channel:', error);
+
+    // Send error message to user
+    await client.chat.postEphemeral({
+      channel: body.channel.id,
+      user: userId,
+      text: '❌ Failed to send images to channel. Please try again.'
+    });
+  }
+}
+
 module.exports = {
   handlePresetSelection,
   handlePreviewAction,
@@ -1681,5 +1854,6 @@ module.exports = {
   handleFileSelectionModal,
   handleProfileOnlyModal,
   handleUploadGuide,
-  handleProfileReferenceToggle
+  handleProfileReferenceToggle,
+  handleSendToChannel
 };
