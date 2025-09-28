@@ -38,7 +38,14 @@
         "commands",
         "users.profile:read",
         "users:read",
-        "chat:write"
+        "chat:write",
+        "chat:write.public",
+        "im:write",
+        "files:write",
+        "files:read",
+        "channels:read",
+        "groups:read",
+        "im:read"
       ]
     }
   },
