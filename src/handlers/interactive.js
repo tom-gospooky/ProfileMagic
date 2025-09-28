@@ -1616,35 +1616,35 @@ async function handleProfileReferenceToggle({ ack, body, client }) {
     const fileInputIndex = blocks.findIndex(block => block.block_id === 'file_input');
 
     if (isChecked && profilePhoto) {
-      // Add profile photo thumbnail after the file input block
+      // Add profile photo as a small image block right after the file input to simulate being part of the files
       const thumbnailBlock = {
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: '*👤 Your Profile Photo*\n_Will be used as style reference_'
+          text: '*👤 Profile Photo*\n_Added as reference image_'
         },
         accessory: {
           type: 'image',
           image_url: profilePhoto,
-          alt_text: 'Your current profile photo'
+          alt_text: 'Your current profile photo (reference)'
         }
       };
 
-      // Insert thumbnail after the file input (or replace existing thumbnail)
+      // Insert thumbnail right after the file input (or replace existing thumbnail)
       const nextBlockIndex = fileInputIndex + 1;
       if (nextBlockIndex < blocks.length && blocks[nextBlockIndex].type === 'section' &&
-          blocks[nextBlockIndex].text?.text?.includes('Your Profile Photo')) {
+          blocks[nextBlockIndex].text?.text?.includes('Profile Photo')) {
         // Replace existing thumbnail
         blocks[nextBlockIndex] = thumbnailBlock;
       } else {
-        // Insert new thumbnail
+        // Insert new thumbnail after file input
         blocks.splice(nextBlockIndex, 0, thumbnailBlock);
       }
     } else {
       // Remove profile photo thumbnail if unchecked
       const nextBlockIndex = fileInputIndex + 1;
       if (nextBlockIndex < blocks.length && blocks[nextBlockIndex].type === 'section' &&
-          blocks[nextBlockIndex].text?.text?.includes('Your Profile Photo')) {
+          blocks[nextBlockIndex].text?.text?.includes('Profile Photo')) {
         blocks.splice(nextBlockIndex, 1);
       }
     }
