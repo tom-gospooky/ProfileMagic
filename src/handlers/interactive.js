@@ -1119,6 +1119,33 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
       response_action: 'clear'
     });
 
+    console.log(`✅ Modal acknowledged and closed for user ${userId}`);
+    console.log('Channel/User info:', { channelId, userId, hasProfilePhoto: !!profilePhoto });
+
+    // IMMEDIATELY try to send a simple test message to debug channel access
+    console.log('🔍 Testing immediate message delivery...');
+    try {
+      const testResult = await client.chat.postMessage({
+        channel: userId, // Direct message to user
+        text: '🧪 **Test message** - Modal was submitted successfully! Processing will start now...'
+      });
+      console.log('✅ TEST MESSAGE SUCCESS:', testResult.ok);
+    } catch (testError) {
+      console.error('❌ TEST MESSAGE FAILED:', testError.data?.error || testError.message);
+
+      // Try ephemeral as backup
+      try {
+        const ephemeralResult = await client.chat.postEphemeral({
+          channel: channelId,
+          user: userId,
+          text: '🧪 **Test ephemeral** - Modal was submitted! Processing starting...'
+        });
+        console.log('✅ TEST EPHEMERAL SUCCESS:', ephemeralResult.ok);
+      } catch (ephemeralError) {
+        console.error('❌ TEST EPHEMERAL FAILED:', ephemeralError.data?.error || ephemeralError.message);
+      }
+    }
+
     // Process asynchronously AFTER modal is acknowledged
     processImagesAsync(client, userId, channelId, promptValue, uploadedFiles, useProfileRef, profilePhoto)
       .catch(error => {
