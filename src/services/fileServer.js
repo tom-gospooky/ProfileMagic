@@ -49,9 +49,9 @@ app.get('/auth/slack', (req, res) => {
       throw new Error('SLACK_CLIENT_ID not configured');
     }
     
-    const oauthUrl = `https://slack.com/oauth/v2/authorize?` +
+    const oauthUrl = 'https://slack.com/oauth/v2/authorize?' +
       `client_id=${clientId}&` +
-      `scope=&` +
+      'scope=&' +
       `user_scope=${encodeURIComponent(scopes)}&` +
       `redirect_uri=${encodeURIComponent(getOAuthRedirectUrl())}&` +
       `state=${encodeURIComponent(state)}`;

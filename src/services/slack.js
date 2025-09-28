@@ -10,10 +10,27 @@ async function getCurrentProfilePhoto(client, userId) {
       user: userId
     });
 
+    console.log('Profile API response:', {
+      hasProfile: !!result.profile,
+      image512: result.profile?.image_512,
+      image192: result.profile?.image_192,
+      image72: result.profile?.image_72
+    });
+
     const profileImage = result.profile.image_512 || result.profile.image_192 || result.profile.image_72;
-    
+
     if (!profileImage) {
       throw new Error('No profile image found');
+    }
+
+    console.log('Selected profile image URL:', profileImage);
+
+    // Validate URL
+    try {
+      new URL(profileImage);
+    } catch (urlError) {
+      console.error('Invalid profile image URL:', profileImage);
+      throw new Error(`Invalid profile image URL: ${profileImage}`);
     }
 
     return profileImage;

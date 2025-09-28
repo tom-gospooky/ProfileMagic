@@ -23,7 +23,14 @@
       "WebFetch(domain:docs.slack.dev)",
       "Bash(node:*)",
       "Bash(echo:*)",
-      "Read(//Users/tom/.railway/**)"
+      "Read(//Users/tom/.railway/**)",
+      "Bash(claude doctor)",
+      "Bash(npm i:*)",
+      "Bash(sudo npm i -g @anthropic-ai/claude-code)",
+      "Bash(claude --version)",
+      "Bash(npm run lint)",
+      "Bash(npm run lint:*)",
+      "Bash(env)"
     ],
     "deny": [],
     "ask": []
