@@ -4,9 +4,8 @@ const fileServer = require('./fileServer');
 const { logSlackError } = require('../utils/logging');
 
 // Helper function to convert Buffer to the format Gemini expects
-const bufferToPart = (buffer) => {
+const bufferToPart = (buffer, mimeType = 'image/jpeg') => {
   const base64Data = buffer.toString('base64');
-  const mimeType = 'image/jpeg'; // Assume JPEG for profile photos
   
   return {
     inlineData: {
@@ -132,19 +131,23 @@ async function editImage(imageUrl, prompt, client, userId, referenceImageUrl = n
     }
     
     // Download the original image
-    const imageBuffer = await slackService.downloadImage(imageUrl);
-    if (!isProduction) console.log(`Downloaded original image, size: ${imageBuffer.length} bytes`);
+    const original = await slackService.downloadImageWithMime(imageUrl);
+    const imageBuffer = original.buffer;
+    const originalMime = original.mimeType || 'image/jpeg';
+    if (!isProduction) console.log(`Downloaded original image, size: ${imageBuffer.length} bytes, type: ${originalMime}`);
     
     // Convert to the format Gemini expects
-    const originalImagePart = bufferToPart(imageBuffer);
+    const originalImagePart = bufferToPart(imageBuffer, originalMime);
     
     // Download and convert reference image if provided
     let referenceImagePart = null;
     if (referenceImageUrl) {
       try {
-        const referenceBuffer = await slackService.downloadImage(referenceImageUrl);
-        referenceImagePart = bufferToPart(referenceBuffer);
-        if (!isProduction) console.log(`Downloaded reference image, size: ${referenceBuffer.length} bytes`);
+        const ref = await slackService.downloadImageWithMime(referenceImageUrl);
+        const referenceBuffer = ref.buffer;
+        const referenceMime = ref.mimeType || 'image/jpeg';
+        referenceImagePart = bufferToPart(referenceBuffer, referenceMime);
+        if (!isProduction) console.log(`Downloaded reference image, size: ${referenceBuffer.length} bytes, type: ${referenceMime}`);
       } catch (refError) {
         console.error('Failed to download reference image:', refError.message);
         // Continue without reference image

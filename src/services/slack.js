@@ -156,8 +156,44 @@ async function downloadImage(imageUrl) {
   }
 }
 
+// Variant that returns both buffer and mimeType
+async function downloadImageWithMime(imageUrl) {
+  try {
+    const headers = { 'User-Agent': 'ProfileMagic/1.0' };
+    try {
+      const u = new URL(imageUrl);
+      if (u.hostname.includes('slack.com')) {
+        if (process.env.SLACK_BOT_TOKEN) {
+          headers['Authorization'] = `Bearer ${process.env.SLACK_BOT_TOKEN}`;
+        }
+      }
+    } catch (_) {}
+
+    const response = await axios({
+      method: 'GET',
+      url: imageUrl,
+      responseType: 'arraybuffer',
+      timeout: 30000,
+      headers,
+      maxRedirects: 5,
+      validateStatus: (status) => status >= 200 && status < 300
+    });
+
+    const buffer = Buffer.from(response.data);
+    const mimeType = (response.headers && response.headers['content-type']) || null;
+    return { buffer, mimeType };
+  } catch (error) {
+    console.error('Image download (with mime) error:', error.message);
+    if (error.response) {
+      console.error('Status:', error.response.status, 'URL:', imageUrl);
+    }
+    throw error;
+  }
+}
+
 module.exports = {
   getCurrentProfilePhoto,
   updateProfilePhoto,
   downloadImage
+  ,downloadImageWithMime
 };

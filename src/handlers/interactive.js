@@ -1249,7 +1249,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
     processingChannel = processingMsg?.channel || channelId;
 
     // Get file URLs for processing
-    const imageUrls = [];
+    let imageUrls = [];
     for (const file of uploadedFiles) {
       try {
         // Get file info from Slack
@@ -1271,6 +1271,16 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
     if (imageUrls.length === 0 && !referenceImageUrl) {
       await sendMessageRobust(client, channelId, userId, '❌ Could not access any images to process. Please try again.');
       return;
+    }
+
+    // Ensure reference is always included with uploaded images. If a model imposes
+    // a max images-per-call limit, reserve one slot for the profile reference.
+    // We process images one-by-one, but this keeps semantics clear and future proof.
+    const MODEL_MAX_IMAGES_PER_CALL = 2; // base + reference
+    if (referenceImageUrl && imageUrls.length > 0 && imageUrls.length + 1 > MODEL_MAX_IMAGES_PER_CALL) {
+      const originalCount = imageUrls.length;
+      imageUrls = imageUrls.slice(0, MODEL_MAX_IMAGES_PER_CALL - 1);
+      console.log(`✂️ Trimmed uploaded images from ${originalCount} to ${imageUrls.length} to include profile reference`);
     }
 
     // Process images directly (no setTimeout needed)
