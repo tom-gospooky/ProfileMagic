@@ -1147,50 +1147,66 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
   }
 }
 
+// Robust message delivery with fallback cascade
+async function sendMessageRobust(client, channelId, userId, text) {
+  const methods = [
+    {
+      name: 'ephemeral',
+      fn: () => client.chat.postEphemeral({ channel: channelId, user: userId, text })
+    },
+    {
+      name: 'dm_to_user',
+      fn: () => client.chat.postMessage({ channel: userId, text })
+    },
+    {
+      name: 'public_message',
+      fn: () => client.chat.postMessage({ channel: channelId, text })
+    }
+  ];
+
+  for (const method of methods) {
+    try {
+      const result = await method.fn();
+      console.log(`✅ Message sent successfully via ${method.name}`);
+      return result;
+    } catch (error) {
+      console.log(`❌ ${method.name} failed:`, error.data?.error || error.message);
+      continue;
+    }
+  }
+
+  console.log('⚠️ All message methods failed, continuing processing...');
+  return null; // Return null instead of throwing to allow processing to continue
+}
+
 async function processImagesAsync(client, userId, channelId, promptValue, uploadedFiles, useProfileRef, profilePhoto) {
   console.log('🚀 processImagesAsync STARTED');
   console.log('Parameters:', { userId, channelId, promptValue, uploadedFilesCount: uploadedFiles?.length || 0, useProfileRefCount: useProfileRef?.length || 0, hasProfilePhoto: !!profilePhoto });
 
   try {
-    // Determine reference image URL
+    // Determine reference image URL - fetch fresh instead of relying on passed data
     let referenceImageUrl = null;
-    if (useProfileRef.length > 0 && profilePhoto) {
-      referenceImageUrl = profilePhoto;
+    if (useProfileRef.length > 0) {
+      console.log('🔄 Fetching fresh profile photo...');
+      const slackService = require('../services/slack');
+      referenceImageUrl = await slackService.getCurrentProfilePhoto(client, userId);
+      if (!referenceImageUrl) {
+        console.error('❌ Failed to fetch current profile photo');
+      } else {
+        console.log('✅ Fresh profile photo retrieved successfully');
+      }
     }
 
     console.log(`Processing ${uploadedFiles?.length || 0} uploaded files with prompt: "${promptValue}"`);
     console.log(`Reference image: ${referenceImageUrl ? 'Yes (profile photo)' : 'No'}`);
     console.log(`Target channel: ${channelId}, User: ${userId}`);
 
-    // Send processing message - detect if it's a DM channel
+    // Send processing message using robust cascade approach
     const imageCount = uploadedFiles.length || (referenceImageUrl ? 1 : 0);
-    const isDMChannel = channelId.startsWith('D');
-    let processingMsg;
+    const text = `🎨 *Processing ${imageCount} image${imageCount === 1 ? '' : 's'}...*\n*Prompt:* "${promptValue}"\n\nYour results will appear here shortly!`;
 
-    try {
-      console.log('📤 Attempting to send processing message...');
-      console.log(`Channel type: ${isDMChannel ? 'DM' : 'Regular'} (${channelId})`);
-
-      if (isDMChannel) {
-        // For DM channels, send direct message
-        processingMsg = await client.chat.postMessage({
-          channel: channelId,
-          text: `🎨 *Processing ${imageCount} image${imageCount === 1 ? '' : 's'}...*\n*Prompt:* "${promptValue}"\n\nYour results will appear here shortly!`
-        });
-      } else {
-        // For regular channels, use ephemeral
-        processingMsg = await client.chat.postEphemeral({
-          channel: channelId,
-          user: userId,
-          text: `🎨 *Processing ${imageCount} image${imageCount === 1 ? '' : 's'}...*\n*Prompt:* "${promptValue}"\n\nYour results will appear here shortly!`
-        });
-      }
-      console.log('Processing message sent successfully:', processingMsg);
-    } catch (msgError) {
-      console.error('Error sending processing message:', msgError);
-      console.log('⚠️ Continuing with processing despite message failure...');
-      // Continue processing even if message fails - user will see results via global error handler
-    }
+    console.log('📤 Attempting to send processing message...');
+    const processingMsg = await sendMessageRobust(client, channelId, userId, text);
 
     // Get file URLs for processing
     const imageUrls = [];
@@ -1369,13 +1385,27 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
           });
         }
 
-        // Update the processing message with results (always ephemeral initially)
-        await client.chat.update({
-          channel: channelId,
-          ts: processingMsg.message_ts,
-          text: `✅ *Transformation complete!*\n*Prompt:* "${promptValue}"\n*Successful:* ${successful.length}\n*Failed:* ${failed.length}`,
-          blocks: resultBlocks
-        });
+        // Update the processing message with results (handle undefined processingMsg)
+        const successText = `✅ *Transformation complete!*\n*Prompt:* "${promptValue}"\n*Successful:* ${successful.length}\n*Failed:* ${failed.length}`;
+
+        if (processingMsg && processingMsg.message_ts) {
+          try {
+            await client.chat.update({
+              channel: channelId,
+              ts: processingMsg.message_ts,
+              text: successText,
+              blocks: resultBlocks
+            });
+            console.log('✅ Results updated in processing message');
+          } catch (updateError) {
+            console.log('❌ Failed to update processing message:', updateError.message);
+            // Fallback: send new message
+            await sendMessageRobust(client, channelId, userId, successText);
+          }
+        } else {
+          console.log('⚠️ No processing message to update, sending new results message');
+          await sendMessageRobust(client, channelId, userId, successText);
+        }
 
       } catch (error) {
         console.error('Background processing error:', error);
@@ -1388,18 +1418,27 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
           errorMessage = `⚠️ **Generation Failed**\n\n${error.userMessage}`;
         }
 
-        // Update the processing message with error (always ephemeral initially)
+        // Update the processing message with error (handle undefined processingMsg)
         const errorBlocks = [{
           type: 'section',
           text: { type: 'mrkdwn', text: errorMessage }
         }];
 
-        await client.chat.update({
-          channel: channelId,
-          ts: processingMsg.message_ts,
-          text: errorMessage,
-          blocks: errorBlocks
-        });
+        if (processingMsg && processingMsg.message_ts) {
+          try {
+            await client.chat.update({
+              channel: channelId,
+              ts: processingMsg.message_ts,
+              text: errorMessage,
+              blocks: errorBlocks
+            });
+          } catch (updateError) {
+            console.log('❌ Failed to update processing message with error:', updateError.message);
+            await sendMessageRobust(client, channelId, userId, errorMessage);
+          }
+        } else {
+          await sendMessageRobust(client, channelId, userId, errorMessage);
+        }
     }
 
   } catch (error) {
@@ -1413,23 +1452,11 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
       errorMessage = `⚠️ **Generation Failed**\n\n${error.userMessage}`;
     }
 
-    // Send error message to user - handle DM channels properly
-    const isDMChannel = channelId.startsWith('D');
+    // Send error message using robust delivery
     try {
-      if (isDMChannel) {
-        await client.chat.postMessage({
-          channel: channelId,
-          text: errorMessage
-        });
-      } else {
-        await client.chat.postEphemeral({
-          channel: channelId,
-          user: userId,
-          text: errorMessage
-        });
-      }
+      await sendMessageRobust(client, channelId, userId, errorMessage);
     } catch (messageError) {
-      console.error('Failed to send error message:', messageError);
+      console.error('All error message delivery methods failed:', messageError);
     }
   }
 }
