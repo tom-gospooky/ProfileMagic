@@ -1101,11 +1101,15 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
       });
     }
 
-    if (!uploadedFiles || uploadedFiles.length === 0) {
+    // Validate we have either uploaded files OR profile photo reference
+    const hasUploadedFiles = uploadedFiles && uploadedFiles.length > 0;
+    const hasProfileRef = useProfileRef.length > 0 && profilePhoto;
+
+    if (!hasUploadedFiles && !hasProfileRef) {
       return await ack({
         response_action: 'errors',
         errors: {
-          'file_input': 'Please upload at least one image to transform.'
+          'file_input': 'Please either upload images OR check "Use my current profile photo as style reference".'
         }
       });
     }
@@ -1188,11 +1192,12 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
       }
     }
 
-    if (imageUrls.length === 0) {
+    // If no uploaded files but we have profile photo, that's ok
+    if (imageUrls.length === 0 && !referenceImageUrl) {
       await client.chat.postEphemeral({
         channel: channelId,
         user: userId,
-        text: '❌ Could not access the uploaded files. Please try again.'
+        text: '❌ Could not access any images to process. Please try again.'
       });
       return;
     }
@@ -1201,7 +1206,25 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
     try {
         let results = [];
 
-        if (imageUrls.length === 1) {
+        if (imageUrls.length === 0 && referenceImageUrl) {
+          // Profile photo only processing
+          try {
+            const result = await imageService.editImage(referenceImageUrl, promptValue, client, userId);
+            results.push({
+              success: true,
+              result: result,
+              index: 0,
+              originalFile: { name: 'profile_photo' }
+            });
+          } catch (error) {
+            results.push({
+              success: false,
+              error: error.message,
+              index: 0,
+              originalFile: { name: 'profile_photo' }
+            });
+          }
+        } else if (imageUrls.length === 1) {
           // Single image processing
           try {
             const result = await imageService.editImage(imageUrls[0], promptValue, client, userId, referenceImageUrl);

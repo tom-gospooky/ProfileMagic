@@ -269,8 +269,9 @@ async function showFileSelectionModal(client, triggerId, teamId, userId, channel
           },
           label: {
             type: 'plain_text',
-            text: 'Upload images to transform:'
-          }
+            text: 'Upload images to transform (optional):'
+          },
+          optional: true
         }
       ],
       submit: {
