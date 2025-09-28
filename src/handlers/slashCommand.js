@@ -637,3 +637,4 @@ async function showPreviewModal(client, triggerId, originalImage, editedImage, p
 
 module.exports = handleSlashCommand;
 module.exports.showPreviewModal = showPreviewModal;
+module.exports.showFileSelectionModal = showFileSelectionModal;

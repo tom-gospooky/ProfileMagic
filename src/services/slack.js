@@ -120,14 +120,23 @@ async function updateProfilePhoto(botClient, userId, teamId, imageUrl) {
 
 async function downloadImage(imageUrl) {
   try {
+    const headers = { 'User-Agent': 'ProfileMagic/1.0' };
+    // If this is a Slack private file URL, include bot auth
+    try {
+      const u = new URL(imageUrl);
+      if (u.hostname.includes('slack.com')) {
+        if (process.env.SLACK_BOT_TOKEN) {
+          headers['Authorization'] = `Bearer ${process.env.SLACK_BOT_TOKEN}`;
+        }
+      }
+    } catch (_) {}
+
     const response = await axios({
       method: 'GET',
       url: imageUrl,
       responseType: 'arraybuffer',
       timeout: 30000, // 30 second timeout
-      headers: {
-        'User-Agent': 'ProfileMagic/1.0'
-      },
+      headers,
       maxRedirects: 5,
       validateStatus: function (status) {
         return status >= 200 && status < 300; // Accept only success status codes

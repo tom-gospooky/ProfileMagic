@@ -337,39 +337,33 @@ async function handleApproveMessage({ ack, body, client }) {
 async function handleRetryMessage({ ack, body, client }) {
   await ack();
 
-  // Send new ephemeral message instead of replacing the original
   try {
+    // Re-open the file selection modal so the user can run a fresh edit
+    const { showFileSelectionModal } = require('./slashCommand');
+    let prompt = '';
+    try {
+      const raw = body.actions?.[0]?.value;
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        prompt = parsed.prompt || '';
+      }
+    } catch (_) {}
+
+    await showFileSelectionModal(
+      client,
+      body.trigger_id,
+      body.team.id,
+      body.user.id,
+      body.channel.id,
+      prompt
+    );
+  } catch (error) {
+    console.error('Error re-opening modal:', error.message);
     await client.chat.postEphemeral({
       channel: body.channel.id,
       user: body.user.id,
-      text: '🔄 *Want to try a different transformation?*\n\nUse `/boo your custom prompt` to create a new edit with a different prompt!',
-      blocks: [
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: '🔄 *Want to try a different transformation?*\n\nUse `/boo your custom prompt` to create a new edit with a different prompt!'
-          }
-        },
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: '*Example prompts:*\n• `/boo add sunglasses`\n• `/boo make it cartoon style`\n• `/boo add a hat`\n• `/boo vintage filter`'
-          }
-        }
-      ]
+      text: '❌ Could not open the modal. Please run `/boo` again.'
     });
-  } catch (error) {
-    console.error('Error sending retry message:', error.message);
-    // Fallback to response_url if chat.postEphemeral fails
-    if (body.response_url) {
-      const axios = require('axios');
-      await axios.post(body.response_url, {
-        text: '🔄 *Want to try a different transformation?*\n\nUse `/boo your custom prompt` to create a new edit with a different prompt!',
-        response_type: 'ephemeral'
-      });
-    }
   }
 }
 
@@ -1149,6 +1143,18 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
   }
 }
 
+// Try to join a public channel if not in it
+async function ensureBotInChannel(client, channelId) {
+  try {
+    if (typeof channelId === 'string' && channelId.startsWith('C')) {
+      await client.conversations.join({ channel: channelId });
+      console.log(`↩️ Joined channel ${channelId}`);
+    }
+  } catch (e) {
+    console.log('Join attempt skipped/failed:', e.data?.error || e.message);
+  }
+}
+
 // Robust message delivery with fallback cascade
 // Returns Slack API result augmented with { deliveryMethod }
 async function sendMessageRobust(client, channelId, userId, text, blocks = undefined) {
@@ -1174,7 +1180,18 @@ async function sendMessageRobust(client, channelId, userId, text, blocks = undef
 
   for (const method of methods) {
     try {
-      const result = await method.fn();
+      let result;
+      try {
+        result = await method.fn();
+      } catch (firstError) {
+        // If public_message failed due to not being in the channel, try to join and retry once
+        if (method.name === 'public_message' && ['not_in_channel','channel_not_found'].includes(firstError.data?.error)) {
+          await ensureBotInChannel(client, channelId);
+          result = await method.fn();
+        } else {
+          throw firstError;
+        }
+      }
       console.log(`✅ Message sent successfully via ${method.name}`);
       // annotate delivery method for callers
       if (result && typeof result === 'object') {
@@ -1360,7 +1377,8 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
           actionElements.push({
             type: 'button',
             text: { type: 'plain_text', text: '🔄 Try Again' },
-            action_id: 'retry_edit'
+            action_id: 'retry_edit_message',
+            value: JSON.stringify({ prompt: promptValue, channelId })
           });
 
           // Add profile picture button for single successful result
@@ -1840,7 +1858,8 @@ async function handleSendToChannel({ ack, body, client }) {
       }
     }
 
-    // Send to channel
+    // Ensure bot can post, then send to channel
+    await ensureBotInChannel(client, channelId);
     await client.chat.postMessage({
       channel: channelId,
       text: `🎨 <@${userId}> shared AI-transformed images using prompt: "${prompt}"`,
@@ -1861,7 +1880,7 @@ async function handleSendToChannel({ ack, body, client }) {
     await client.chat.postEphemeral({
       channel: body.channel.id,
       user: userId,
-      text: '❌ Failed to send images to channel. Please try again.'
+      text: '❌ Failed to send images to channel. Please invite the app to the channel or try again.'
     });
   }
 }
