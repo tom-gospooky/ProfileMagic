@@ -1150,31 +1150,36 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
 }
 
 // Robust message delivery with fallback cascade
-async function sendMessageRobust(client, channelId, userId, text) {
+// Returns Slack API result augmented with { deliveryMethod }
+async function sendMessageRobust(client, channelId, userId, text, blocks = undefined) {
   const isImChannel = typeof channelId === 'string' && channelId.startsWith('D');
   const methods = [
     {
       name: 'public_message',
-      fn: () => client.chat.postMessage({ channel: channelId, text })
+      fn: () => client.chat.postMessage({ channel: channelId, text, blocks })
     }
   ];
 
   if (!isImChannel) {
     methods.push({
       name: 'ephemeral',
-      fn: () => client.chat.postEphemeral({ channel: channelId, user: userId, text })
+      fn: () => client.chat.postEphemeral({ channel: channelId, user: userId, text, blocks })
     });
   }
 
   methods.push({
     name: 'dm_to_user',
-    fn: () => client.chat.postMessage({ channel: userId, text })
+    fn: () => client.chat.postMessage({ channel: userId, text, blocks })
   });
 
   for (const method of methods) {
     try {
       const result = await method.fn();
       console.log(`✅ Message sent successfully via ${method.name}`);
+      // annotate delivery method for callers
+      if (result && typeof result === 'object') {
+        result.deliveryMethod = method.name;
+      }
       return result;
     } catch (error) {
       console.log(`❌ ${method.name} failed:`, error.data?.error || error.message);
@@ -1192,6 +1197,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
 
   let processingMsg = null;
   let processingTs = null;
+  let processingChannel = null;
 
   try {
     // Determine reference image URL - fetch fresh instead of relying on passed data
@@ -1218,6 +1224,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
     console.log('📤 Attempting to send processing message...');
     processingMsg = await sendMessageRobust(client, channelId, userId, text);
     processingTs = processingMsg?.ts || processingMsg?.message_ts || null;
+    processingChannel = processingMsg?.channel || channelId;
 
     // Get file URLs for processing
     const imageUrls = [];
@@ -1395,10 +1402,10 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
         // Update the processing message with results (handle undefined processingMsg)
         const successText = `✅ *Transformation complete!*\n*Prompt:* "${promptValue}"\n*Successful:* ${successful.length}\n*Failed:* ${failed.length}`;
 
-        if (processingTs) {
+        if (processingTs && processingMsg?.deliveryMethod !== 'ephemeral') {
           try {
             await client.chat.update({
-              channel: channelId,
+              channel: processingChannel,
               ts: processingTs,
               text: successText,
               blocks: resultBlocks
@@ -1407,11 +1414,11 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
           } catch (updateError) {
             console.log('❌ Failed to update processing message:', updateError.message);
             // Fallback: send new message
-            await sendMessageRobust(client, channelId, userId, successText);
+            await sendMessageRobust(client, channelId, userId, successText, resultBlocks);
           }
         } else {
           console.log('⚠️ No processing message to update, sending new results message');
-          await sendMessageRobust(client, channelId, userId, successText);
+          await sendMessageRobust(client, channelId, userId, successText, resultBlocks);
         }
 
       } catch (error) {
@@ -1431,20 +1438,20 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
           text: { type: 'mrkdwn', text: errorMessage }
         }];
 
-        if (processingTs) {
+        if (processingTs && processingMsg?.deliveryMethod !== 'ephemeral') {
           try {
             await client.chat.update({
-              channel: channelId,
+              channel: processingChannel,
               ts: processingTs,
               text: errorMessage,
               blocks: errorBlocks
             });
           } catch (updateError) {
             console.log('❌ Failed to update processing message with error:', updateError.message);
-            await sendMessageRobust(client, channelId, userId, errorMessage);
+            await sendMessageRobust(client, channelId, userId, errorMessage, errorBlocks);
           }
         } else {
-          await sendMessageRobust(client, channelId, userId, errorMessage);
+          await sendMessageRobust(client, channelId, userId, errorMessage, errorBlocks);
         }
     }
 
