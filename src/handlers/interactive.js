@@ -1291,15 +1291,24 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
       }
     }
 
-    // If profile selected, ensure it is included and enforce a total max
-    const MAX_TOTAL_IMAGES = 5;
+    // If profile selected, ensure it is included
+    // Gemini limit: allow at most 3 images per request (user precedence rule: profile takes precedence)
+    const MAX_TOTAL_IMAGES = 3;
+    const uploaded = [...sources];
+    sources = uploaded; // start from uploaded
     if (profileImageUrl) {
-      if (sources.length >= MAX_TOTAL_IMAGES) {
-        const originalCount = sources.length;
-        sources = sources.slice(0, MAX_TOTAL_IMAGES - 1);
-        console.log(`✂️ Trimmed uploaded images from ${originalCount} to ${sources.length} to include profile photo`);
+      // Build combined list: keep first two uploads and profile photo
+      const trimmedUploads = uploaded.slice(0, Math.max(0, MAX_TOTAL_IMAGES - 1));
+      sources = [...trimmedUploads, { url: profileImageUrl, name: 'profile_photo', isProfile: true }];
+      if (uploaded.length > trimmedUploads.length) {
+        console.log(`✂️ Trimmed uploaded images from ${uploaded.length} to ${trimmedUploads.length} to include profile photo`);
       }
-      sources.push({ url: profileImageUrl, name: 'profile_photo', isProfile: true });
+    } else {
+      // No profile: cap uploads to MAX_TOTAL_IMAGES
+      if (sources.length > MAX_TOTAL_IMAGES) {
+        console.log(`✂️ Trimmed uploaded images from ${sources.length} to ${MAX_TOTAL_IMAGES}`);
+        sources = sources.slice(0, MAX_TOTAL_IMAGES);
+      }
     }
 
     // Validate we have at least one image to process
@@ -1322,10 +1331,14 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
             results.push({ success: false, error: error.message, index: 0, originalFile: { name: sources[0].name } });
           }
         } else {
-          // Multiple images processed sequentially
+          // Multiple images processed together to produce ONE result
           const urls = sources.map(s => s.url);
-          const batchResult = await imageService.editMultipleImages(urls, promptValue, client, userId, null, channelId);
-          results = batchResult.results.map((r, index) => ({ ...r, originalFile: { name: sources[index]?.name || `image_${index + 1}` } }));
+          try {
+            const result = await imageService.editImageGroup(urls, promptValue, client, userId, channelId);
+            results.push({ success: true, result, index: 0, originalFile: { name: sources.map(s => s.name).join(', ') } });
+          } catch (error) {
+            results.push({ success: false, error: error.message, index: 0, originalFile: { name: 'combined_images' } });
+          }
         }
 
         // Build result blocks

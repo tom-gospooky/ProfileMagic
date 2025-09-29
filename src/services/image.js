@@ -225,6 +225,65 @@ async function editImage(imageUrl, prompt, client, userId, referenceImageUrl = n
   }
 }
 
+// New: Edit a group of images together in a single Gemini call
+async function editImageGroup(imageUrls, prompt, client, userId, channelId = null) {
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  if (!imageUrls || imageUrls.length === 0) {
+    throw new Error('No images provided for group editing');
+  }
+
+  try {
+    if (!isProduction) console.log(`Starting group edit of ${imageUrls.length} images with prompt: "${prompt}"`);
+
+    const ai = new GoogleGenAI(process.env.GEMINI_API_KEY);
+
+    // Prepare content parts from all images
+    const contentParts = [];
+    for (const url of imageUrls) {
+      try {
+        const { buffer, mimeType } = await slackService.downloadImageWithMime(url);
+        contentParts.push(bufferToPart(buffer, mimeType || 'image/jpeg'));
+      } catch (e) {
+        console.error('Failed to download image for group edit:', e.message);
+        throw new Error('Failed to download one of the images');
+      }
+    }
+
+    contentParts.push({ text: `Edit these images: ${prompt}. Keep the edit natural and realistic.` });
+
+    // Call Gemini with one request expecting a single image response
+    let response;
+    try {
+      const model = ai.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash-image-preview' });
+      if (!isProduction) console.log('Using getGenerativeModel for group edit');
+      response = await model.generateContent(contentParts);
+    } catch (error1) {
+      if (!isProduction) console.log('Group: getGenerativeModel failed, trying direct generateContent:', error1.message);
+      try {
+        response = await ai.generateContent({
+          model: process.env.GEMINI_MODEL || 'gemini-2.5-flash-image-preview',
+          contents: [{ parts: contentParts }]
+        });
+      } catch (error2) {
+        if (!isProduction) console.log('Group: Direct generateContent failed, trying models property:', error2.message);
+        response = await ai.models.generateContent({
+          model: process.env.GEMINI_MODEL || 'gemini-2.5-flash-image-preview',
+          contents: [{ parts: contentParts }]
+        });
+      }
+    }
+
+    if (!isProduction) console.log('Received group response from Gemini API');
+    return await handleApiResponse(response, 'edit', client, userId, channelId);
+
+  } catch (error) {
+    console.error('editImageGroup error:', error.constructor.name, error.message);
+    if (!isProduction) console.error('Full stack trace:', error.stack);
+    throw new Error('Failed to process your images. Please try again.');
+  }
+}
+
 // Alternative implementation using a mock/placeholder service for development
 async function editImageMock(imageUrl, prompt) {
   const isProduction = process.env.NODE_ENV === 'production';
@@ -329,5 +388,6 @@ module.exports = {
   editImage: editImageFunction,
   editImageMock,
   editImageReal: editImage,
-  editMultipleImages
+  editMultipleImages,
+  editImageGroup
 };
