@@ -594,29 +594,27 @@ async function handleReferenceImageSubmission({ ack, body, view, client }) {
     }
 
     // Add action buttons
-    successBlocks.push({
-      type: 'actions',
-      elements: [
-        {
-          type: 'button',
-          text: {
-            type: 'plain_text',
-            text: '✅ Set as Profile Picture'
-          },
-          style: 'primary',
-          action_id: 'approve_edit',
-          value: JSON.stringify({ editedImage: editedImageResult.localUrl, prompt: originalPrompt })
-        },
-        {
-          type: 'button',
-          text: {
-            type: 'plain_text',
-            text: '🔄 Try Again'
-          },
-          action_id: 'retry_edit'
-        }
-      ]
+    const actionElementsRef = [];
+    actionElementsRef.push({
+      type: 'button',
+      text: { type: 'plain_text', text: '🔄 Try Again' },
+      action_id: 'retry_edit'
     });
+    // Show set profile only if profile reference was selected
+    const profileSelectedRef = true; // this path is reference-only
+    if (profileSelectedRef) {
+      actionElementsRef.unshift({
+        type: 'button',
+        text: { type: 'plain_text', text: '✅ Set as Profile Picture' },
+        style: 'primary',
+        action_id: 'approve_edit',
+        value: JSON.stringify({ editedImage: editedImageResult.localUrl, prompt: originalPrompt })
+      });
+    }
+    if (editedImageResult.slackFile?.permalink) {
+      actionElementsRef.push({ type: 'button', text: { type: 'plain_text', text: '🔎 Open in Slack' }, url: editedImageResult.slackFile.permalink });
+    }
+    successBlocks.push({ type: 'actions', elements: actionElementsRef });
 
     await client.views.update({
       view_id: body.view.id,
@@ -1461,6 +1459,14 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
             type: 'actions',
             elements: actionElements
           });
+
+          // Dev-only: show where upload landed
+          if (process.env.NODE_ENV !== 'production' && successful[0]?.result?.origin) {
+            resultBlocks.push({
+              type: 'context',
+              elements: [ { type: 'mrkdwn', text: `🛠️ Debug: uploaded via *${successful[0].result.origin}*` } ]
+            });
+          }
         }
 
         // Update the processing message with results (handle response_url vs chat.update)

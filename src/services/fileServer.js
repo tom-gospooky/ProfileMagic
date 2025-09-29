@@ -137,8 +137,7 @@ app.get('/auth/slack/callback', async (req, res) => {
         </head>
         <body>
           <div class="container">
-            <h2 class="success">✅ Authorization Successful!</h2>
-            <p>ProfileMagic can now update your profile picture!</p>
+            <h2 class="success">👻 Authorization Successful!</h2>
             <p>You can close this window and try the <code>/boo</code> command again in Slack.</p>
             <hr>
             <small>Your token is stored securely and only used for profile picture updates.</small>

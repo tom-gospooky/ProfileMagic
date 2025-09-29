@@ -151,29 +151,12 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
       }
 
       // Add action buttons
-      responseBlocks.push({
-        type: 'actions',
-        elements: [
-          {
-            type: 'button',
-            text: {
-              type: 'plain_text',
-              text: '✅ Update Profile Picture'
-            },
-            style: 'primary',
-            action_id: 'approve_edit_message',
-            value: JSON.stringify({ editedImage: editedImageResult.localUrl, prompt })
-          },
-          {
-            type: 'button',
-            text: {
-              type: 'plain_text',
-              text: '🔄 Retry'
-            },
-            action_id: 'retry_edit_message'
-          }
-        ]
-      });
+      const actions = [];
+      actions.push({ type: 'button', text: { type: 'plain_text', text: '🔄 Retry' }, action_id: 'retry_edit_message' });
+      if (editedImageResult.slackFile?.permalink) {
+        actions.push({ type: 'button', text: { type: 'plain_text', text: '🔎 Open in Slack' }, url: editedImageResult.slackFile.permalink });
+      }
+      responseBlocks.push({ type: 'actions', elements: actions });
 
       // Send single comprehensive response
       await respond({

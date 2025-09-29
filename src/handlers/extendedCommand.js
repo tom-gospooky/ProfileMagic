@@ -338,34 +338,20 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
     }
 
     // Add action buttons
-    successBlocks.push({
-      type: 'actions',
-      elements: [
-        {
-          type: 'button',
-          text: {
-            type: 'plain_text',
-            text: '✅ Set as Profile Picture'
-          },
-          style: 'primary',
-          action_id: 'approve_ext_edit',
-          value: JSON.stringify({ 
-            editedImage: editedImageResult.localUrl, 
-            prompt,
-            referenceCount: referenceImages.length,
-            useProfilePhoto
-          })
-        },
-        {
-          type: 'button',
-          text: {
-            type: 'plain_text',
-            text: '🔄 Try Different Edit'
-          },
-          action_id: 'retry_edit_message'
-        }
-      ]
-    });
+    const extActions = [];
+    // Only show profile update when a profile image was involved
+    if (useProfilePhoto) {
+      extActions.push({
+        type: 'button', text: { type: 'plain_text', text: '✅ Set as Profile Picture' }, style: 'primary',
+        action_id: 'approve_ext_edit',
+        value: JSON.stringify({ editedImage: editedImageResult.localUrl, prompt, referenceCount: referenceImages.length, useProfilePhoto })
+      });
+    }
+    extActions.push({ type: 'button', text: { type: 'plain_text', text: '🔄 Try Different Edit' }, action_id: 'retry_edit_message' });
+    if (editedImageResult.slackFile?.permalink) {
+      extActions.push({ type: 'button', text: { type: 'plain_text', text: '🔎 Open in Slack' }, url: editedImageResult.slackFile.permalink });
+    }
+    successBlocks.push({ type: 'actions', elements: extActions });
 
     // Update the processing message with results
     try {

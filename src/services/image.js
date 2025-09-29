@@ -68,7 +68,8 @@ const handleApiResponse = async (response, context = 'edit', client, userId, cha
       return {
         fileId: uploadResult.file.id,
         localUrl: await fileServer.saveTemporaryFile(imageBuffer, filename),
-        slackFile: uploadResult.file
+        slackFile: uploadResult.file,
+        origin: 'channel'
       };
       
     } catch (uploadError) {
@@ -92,7 +93,8 @@ const handleApiResponse = async (response, context = 'edit', client, userId, cha
         return {
           fileId: dmUpload.file.id,
           localUrl: await fileServer.saveTemporaryFile(imageBuffer, filename),
-          slackFile: dmUpload.file
+          slackFile: dmUpload.file,
+          origin: 'dm'
         };
       } catch (dmError) {
         console.error('DM upload failed, trying external upload');
@@ -129,7 +131,8 @@ const handleApiResponse = async (response, context = 'edit', client, userId, cha
           return {
             fileId: created.id,
             localUrl: await fileServer.saveTemporaryFile(imageBuffer, filename),
-            slackFile: created
+            slackFile: created,
+            origin: 'external'
           };
         } catch (externalErr) {
           console.error('External upload failed, using local fallback');
@@ -139,7 +142,8 @@ const handleApiResponse = async (response, context = 'edit', client, userId, cha
           return {
             fileId: null,
             localUrl: fileUrl,
-            slackFile: null
+            slackFile: null,
+            origin: 'fallback'
           };
         }
       }
