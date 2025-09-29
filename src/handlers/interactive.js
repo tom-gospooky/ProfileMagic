@@ -1421,12 +1421,12 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
             });
           }
 
-          // Add download button for single result
-          if (successful.length === 1 && successful[0].result?.localUrl) {
+          // Prefer native Slack viewer: if we have a Slack file, offer an "Open in Slack" button
+          if (successful.length === 1 && successful[0].result?.slackFile?.permalink) {
             actionElements.push({
               type: 'button',
-              text: { type: 'plain_text', text: '⬇️ Download' },
-              url: `${successful[0].result.localUrl}?dl=1`
+              text: { type: 'plain_text', text: '🔎 Open in Slack' },
+              url: successful[0].result.slackFile.permalink
             });
           }
 
