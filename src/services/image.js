@@ -1,6 +1,7 @@
 const { GoogleGenAI } = require('@google/genai');
 const slackService = require('./slack');
 const fileServer = require('./fileServer');
+const axios = require('axios');
 const { logSlackError } = require('../utils/logging');
 
 // Helper function to convert Buffer to the format Gemini expects
@@ -94,16 +95,53 @@ const handleApiResponse = async (response, context = 'edit', client, userId, cha
           slackFile: dmUpload.file
         };
       } catch (dmError) {
-        console.error('DM upload failed, using local fallback');
+        console.error('DM upload failed, trying external upload');
         logSlackError('files.uploadV2(dm)', dmError);
-        // Fallback to local file
-        const fileUrl = await fileServer.saveTemporaryFile(imageBuffer, filename);
-        if (!isProduction) console.log(`Saved edited image locally: ${fileUrl}`);
-        return {
-          fileId: null,
-          localUrl: fileUrl,
-          slackFile: null
-        };
+
+        // Third attempt: External upload URL flow (still results in a native Slack file)
+        try {
+          const getUrl = await client.files.getUploadURLExternal({
+            filename,
+            length: imageBuffer.length
+          });
+          const uploadUrl = getUrl.upload_url;
+          const fileId = getUrl.file_id;
+
+          await axios.put(uploadUrl, imageBuffer, {
+            headers: { 'Content-Type': 'application/octet-stream' }
+          });
+
+          // Share the file into a channel (prefer original, otherwise DM)
+          let targetChannel = channelId;
+          if (!targetChannel) {
+            const im = await client.conversations.open({ users: userId });
+            targetChannel = im.channel?.id;
+          }
+
+          const complete = await client.files.completeUploadExternal({
+            files: [{ id: fileId, title: filename }],
+            channel_id: targetChannel
+          });
+
+          const created = complete.files?.[0] || { id: fileId };
+          if (!isProduction) console.log(`External upload completed as Slack file: ${created.id}`);
+
+          return {
+            fileId: created.id,
+            localUrl: await fileServer.saveTemporaryFile(imageBuffer, filename),
+            slackFile: created
+          };
+        } catch (externalErr) {
+          console.error('External upload failed, using local fallback');
+          logSlackError('files.get/completeUploadExternal', externalErr);
+          const fileUrl = await fileServer.saveTemporaryFile(imageBuffer, filename);
+          if (!isProduction) console.log(`Saved edited image locally: ${fileUrl}`);
+          return {
+            fileId: null,
+            localUrl: fileUrl,
+            slackFile: null
+          };
+        }
       }
     }
   }

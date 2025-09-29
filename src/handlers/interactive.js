@@ -1351,7 +1351,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: `✅ *Transformation complete!*\n\n*Prompt:* "${promptValue}"\n*Successful:* ${successful.length}\n*Failed:* ${failed.length}`
+              text: `✅ *Transformation complete!*\n\n*Prompt:* "${promptValue}"`
             }
           }
         ];
