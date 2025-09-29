@@ -2004,7 +2004,6 @@ async function handleOpenShareModal({ ack, body, client }) {
         close: { type: 'plain_text', text: 'Cancel' },
         private_metadata: JSON.stringify({ results, prompt, defaultChannel: channelId, userId }),
         blocks: [
-          ...( (results && results[0]?.localUrl) ? [{ type: 'image', image_url: results[0].localUrl, alt_text: 'Preview' }] : []),
           {
             type: 'input',
             block_id: 'caption_input',
@@ -2016,6 +2015,7 @@ async function handleOpenShareModal({ ack, body, client }) {
             },
             label: { type: 'plain_text', text: 'Caption (optional)' }
           },
+          ...( (results && results[0]?.localUrl) ? [{ type: 'image', image_url: results[0].localUrl, alt_text: 'Preview' }] : []),
           { type: 'context', elements: [{ type: 'mrkdwn', text: 'Images will be attached to your message in this channel.' }] }
         ]
       }
@@ -2039,8 +2039,14 @@ async function handleShareToChannelSubmission({ ack, body, client }) {
   const isPublic = typeof selectedChannel === 'string' && selectedChannel.startsWith('C');
   try {
     // Build blocks
-    const messageBlocks = [
-    ];
+    const messageBlocks = [];
+
+    if (caption && caption.length) {
+      messageBlocks.push({
+        type: 'section',
+        text: { type: 'mrkdwn', text: caption }
+      });
+    }
 
     for (const result of results) {
       // If we have a Slack file, make sure it is shared to the selected channel for inline rendering
