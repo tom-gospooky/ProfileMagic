@@ -2006,12 +2006,13 @@ async function handleOpenShareModal({ ack, body, client }) {
             type: 'input',
             block_id: 'target_channel',
             element: {
-              type: 'channels_select',
+              type: 'conversations_select',
               action_id: 'share_target_channel',
-              initial_channel: channelId,
-              placeholder: { type: 'plain_text', text: 'Select a channel' }
+              initial_conversation: channelId,
+              placeholder: { type: 'plain_text', text: 'Select a conversation' },
+              filter: { include: ['im', 'mpim', 'private', 'public'] }
             },
-            label: { type: 'plain_text', text: 'Channel' }
+            label: { type: 'plain_text', text: 'Conversation' }
           },
           {
             type: 'input',
@@ -2041,7 +2042,7 @@ async function handleShareToChannelSubmission({ ack, body, client }) {
   const meta = JSON.parse(body.view.private_metadata || '{}');
   const { results, prompt } = meta;
 
-  const selectedChannel = body.view.state.values.target_channel?.share_target_channel?.selected_channel;
+  const selectedChannel = body.view.state.values.target_channel?.share_target_channel?.selected_conversation;
   const caption = body.view.state.values.caption_input?.share_caption?.value?.trim();
 
   const isPublic = typeof selectedChannel === 'string' && selectedChannel.startsWith('C');
