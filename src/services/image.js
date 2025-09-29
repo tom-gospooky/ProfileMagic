@@ -77,8 +77,11 @@ const handleApiResponse = async (response, context = 'edit', client, userId, cha
 
       // Second attempt: upload to user's DM for native download support
       try {
+        // Open an IM channel with the user to obtain a valid D* channel id
+        const im = await client.conversations.open({ users: userId });
+        const dmChannelId = im.channel?.id;
         const dmUpload = await client.files.uploadV2({
-          channel_id: userId,
+          channel_id: dmChannelId,
           file: imageBuffer,
           filename: filename,
           title: `AI Edited Profile Photo - ${context}`,
