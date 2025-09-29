@@ -2046,6 +2046,31 @@ async function handleOpenShareModal({ ack, body, client }) {
   }
 }
 
+// Global shortcut: open the same modal as /boo, defaulting to a DM channel with the user
+async function handleGlobalShortcut({ ack, shortcut, client }) {
+  await ack();
+
+  try {
+    const userId = shortcut.user?.id || shortcut.user_id;
+    const teamId = shortcut.team?.id || shortcut.team_id;
+    // Open IM to get a valid channel id for ephemerals
+    const dm = await client.conversations.open({ users: userId });
+    const dmChannelId = dm.channel?.id;
+
+    const { showFileSelectionModal } = require('./slashCommand');
+    await showFileSelectionModal(
+      client,
+      shortcut.trigger_id,
+      teamId,
+      userId,
+      dmChannelId,
+      ''
+    );
+  } catch (e) {
+    console.error('Global shortcut error:', e.message);
+  }
+}
+
 async function handleShareToChannelSubmission({ ack, body, client }) {
   // Close modal immediately
   await ack({ response_action: 'clear' });
@@ -2153,5 +2178,6 @@ module.exports = {
   handleProfileReferenceToggle,
   handleSendToChannel,
   handleShareToChannelSubmission,
-  handleOpenShareModal
+  handleOpenShareModal,
+  handleGlobalShortcut
 };

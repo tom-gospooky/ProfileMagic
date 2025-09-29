@@ -65,6 +65,7 @@ app.action('open_share_modal', interactiveHandler.handleOpenShareModal);
 
 // Message shortcut handlers
 app.shortcut('banana', interactiveHandler.handleMessageShortcut);
+app.shortcut('banana_global', interactiveHandler.handleGlobalShortcut);
 
 // Remove intrusive file_shared event handler - using modal approach instead
 
