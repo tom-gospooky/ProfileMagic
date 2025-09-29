@@ -2048,13 +2048,17 @@ async function handleShareToChannelSubmission({ ack, body, client }) {
   try {
     // Build blocks
     const messageBlocks = [
-      {
-        type: 'section',
-        text: { type: 'mrkdwn', text: caption && caption.length ? caption : `🎨 *<@${userId}> shared AI-transformed images*\n\n*Prompt:* "${prompt}"` }
-      }
     ];
 
     for (const result of results) {
+      // If we have a Slack file, make sure it is shared to the selected channel for inline rendering
+      if (result.fileId) {
+        try {
+          await client.files.share({ file: result.fileId, channels: selectedChannel });
+        } catch (shareErr) {
+          console.log('files.share failed or not needed:', shareErr.data?.error || shareErr.message);
+        }
+      }
       if (result.fileId) {
         messageBlocks.push({
           type: 'image',

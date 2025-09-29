@@ -4,6 +4,67 @@ const fileServer = require('./fileServer');
 const axios = require('axios');
 const { logSlackError } = require('../utils/logging');
 
+async function compressIfLarge(buffer, mimeType = 'image/jpeg', maxBytes = 4 * 1024 * 1024) {
+  try {
+    if (buffer.length <= maxBytes && mimeType === 'image/jpeg') return { buffer, mimeType };
+    const Jimp = require('jimp');
+    const image = await Jimp.read(buffer);
+    // Resize if very large (long side > 2048)
+    const MAX_SIDE = 2048;
+    if (image.getWidth() > MAX_SIDE || image.getHeight() > MAX_SIDE) {
+      image.scaleToFit(MAX_SIDE, MAX_SIDE);
+    }
+    // Encode as JPEG with quality to target size
+    let quality = 85;
+    let out = await image.quality(quality).getBufferAsync(Jimp.MIME_JPEG);
+    while (out.length > maxBytes && quality > 50) {
+      quality -= 10;
+      out = await image.quality(quality).getBufferAsync(Jimp.MIME_JPEG);
+    }
+    return { buffer: out, mimeType: 'image/jpeg' };
+  } catch (e) {
+    console.warn('Compression skipped due to error:', e.message);
+    return { buffer, mimeType };
+  }
+}
+
+async function externalUploadAsSlackFile(client, imageBuffer, filename, userId) {
+  // Try external upload with Content-Length and compression retry on 413
+  try {
+    const first = await client.files.getUploadURLExternal({ filename, length: imageBuffer.length });
+    await axios.put(first.upload_url, imageBuffer, {
+      headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': imageBuffer.length }
+    });
+    const im = await client.conversations.open({ users: userId });
+    const targetChannel = im.channel?.id;
+    const complete = await client.files.completeUploadExternal({ files: [{ id: first.file_id, title: filename }], channel_id: targetChannel });
+    const created = complete.files?.[0] || { id: first.file_id };
+    return { ok: true, file: created };
+  } catch (err) {
+    const status = err?.response?.status || err?.status;
+    if (status === 413) {
+      // Compress and retry once
+      try {
+        const { buffer: smaller } = await compressIfLarge(imageBuffer);
+        const retry = await client.files.getUploadURLExternal({ filename, length: smaller.length });
+        await axios.put(retry.upload_url, smaller, {
+          headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': smaller.length }
+        });
+        const im = await client.conversations.open({ users: userId });
+        const targetChannel = im.channel?.id;
+        const complete = await client.files.completeUploadExternal({ files: [{ id: retry.file_id, title: filename }], channel_id: targetChannel });
+        const created = complete.files?.[0] || { id: retry.file_id };
+        return { ok: true, file: created };
+      } catch (err2) {
+        logSlackError('externalUploadRetry', err2);
+        return { ok: false, error: err2 };
+      }
+    }
+    logSlackError('externalUpload', err);
+    return { ok: false, error: err };
+  }
+}
+
 // Helper function to convert Buffer to the format Gemini expects
 const bufferToPart = (buffer, mimeType = 'image/jpeg') => {
   const base64Data = buffer.toString('base64');
@@ -51,37 +112,18 @@ const handleApiResponse = async (response, context = 'edit', client, userId, cha
     const imageBuffer = Buffer.from(data, 'base64');
     const filename = `edited_${Date.now()}.jpg`;
     
-    // Upload to Slack for proper display
-    try {
-      if (!isProduction) console.log(`Attempting Slack upload to channel: ${channelId || userId}`);
-      const uploadResult = await client.files.uploadV2({
-        channel_id: channelId || userId, // Use channelId if provided, fallback to userId
-        file: imageBuffer,
-        filename: filename,
-        title: `AI Edited Profile Photo - ${context}`,
-        alt_txt: `AI edited profile photo using prompt: ${context}`
-      });
-      
-      if (!isProduction) console.log(`Uploaded image to Slack: ${uploadResult.file.id}`);
-      
-      // Return both the file ID and local URL for fallback
-      return {
-        fileId: uploadResult.file.id,
-        localUrl: await fileServer.saveTemporaryFile(imageBuffer, filename),
-        slackFile: uploadResult.file,
-        origin: 'channel'
-      };
-      
-    } catch (uploadError) {
-      console.error('Slack upload failed to target channel, trying DM upload');
-      // Log a sanitized error payload even in production
-      logSlackError('files.uploadV2(channel)', uploadError);
-
-      // Second attempt: upload to user's DM for native download support
+    // Upload to Slack for proper display (DM first to avoid auto-posting in channels)
       try {
         // Open an IM channel with the user to obtain a valid D* channel id
-        const im = await client.conversations.open({ users: userId });
-        const dmChannelId = im.channel?.id;
+        let dmChannelId;
+        try {
+          const im = await client.conversations.open({ users: userId });
+          dmChannelId = im.channel?.id;
+          if (!dmChannelId) throw new Error('IM_OPEN_NO_CHANNEL');
+        } catch (openErr) {
+          logSlackError('conversations.open', openErr);
+          throw openErr;
+        }
         const dmUpload = await client.files.uploadV2({
           channel_id: dmChannelId,
           file: imageBuffer,
@@ -96,57 +138,25 @@ const handleApiResponse = async (response, context = 'edit', client, userId, cha
           slackFile: dmUpload.file,
           origin: 'dm'
         };
-      } catch (dmError) {
-        console.error('DM upload failed, trying external upload');
-        logSlackError('files.uploadV2(dm)', dmError);
-
-        // Third attempt: External upload URL flow (still results in a native Slack file)
-        try {
-          const getUrl = await client.files.getUploadURLExternal({
-            filename,
-            length: imageBuffer.length
-          });
-          const uploadUrl = getUrl.upload_url;
-          const fileId = getUrl.file_id;
-
-          await axios.put(uploadUrl, imageBuffer, {
-            headers: { 'Content-Type': 'application/octet-stream' }
-          });
-
-          // Share the file into a channel (prefer original, otherwise DM)
-          let targetChannel = channelId;
-          if (!targetChannel) {
-            const im = await client.conversations.open({ users: userId });
-            targetChannel = im.channel?.id;
-          }
-
-          const complete = await client.files.completeUploadExternal({
-            files: [{ id: fileId, title: filename }],
-            channel_id: targetChannel
-          });
-
-          const created = complete.files?.[0] || { id: fileId };
-          if (!isProduction) console.log(`External upload completed as Slack file: ${created.id}`);
-
-          return {
-            fileId: created.id,
-            localUrl: await fileServer.saveTemporaryFile(imageBuffer, filename),
-            slackFile: created,
-            origin: 'external'
-          };
-        } catch (externalErr) {
-          console.error('External upload failed, using local fallback');
-          logSlackError('files.get/completeUploadExternal', externalErr);
-          const fileUrl = await fileServer.saveTemporaryFile(imageBuffer, filename);
-          if (!isProduction) console.log(`Saved edited image locally: ${fileUrl}`);
-          return {
-            fileId: null,
-            localUrl: fileUrl,
-            slackFile: null,
-            origin: 'fallback'
-          };
-        }
+    } catch (dmError) {
+      console.error('DM upload failed, trying external upload');
+      logSlackError('files.uploadV2(dm)', dmError);
+      // Third attempt: External upload URL flow with Content-Length + compression retry
+      const ext = await externalUploadAsSlackFile(client, imageBuffer, filename, userId);
+      if (ext.ok) {
+        if (!isProduction) console.log(`External upload completed as Slack file: ${ext.file.id}`);
+        return {
+          fileId: ext.file.id,
+          localUrl: await fileServer.saveTemporaryFile(imageBuffer, filename),
+          slackFile: ext.file,
+          origin: 'external'
+        };
       }
+      console.error('External upload failed, using local fallback');
+      const fileUrl = await fileServer.saveTemporaryFile(imageBuffer, filename);
+      if (!isProduction) console.log(`Saved edited image locally: ${fileUrl}`);
+      return { fileId: null, localUrl: fileUrl, slackFile: null, origin: 'fallback' };
+    }
     }
   }
 
