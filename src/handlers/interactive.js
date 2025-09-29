@@ -1422,6 +1422,17 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
             })
           });
 
+          // Add a privacy hint context making it clear this preview is private
+          resultBlocks.push({
+            type: 'context',
+            elements: [
+              {
+                type: 'mrkdwn',
+                text: '🔒 *Private preview* — only you can see this. Click “Send to Channel” to share.'
+              }
+            ]
+          });
+
           resultBlocks.push({
             type: 'actions',
             elements: actionElements
