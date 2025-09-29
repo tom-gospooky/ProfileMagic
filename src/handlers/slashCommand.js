@@ -124,7 +124,7 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
       });
 
       // Add edited image
-      if (editedImageResult.fileId) {
+      if (editedImageResult.fileId && editedImageResult.origin !== 'external') {
         // Use Slack file if upload succeeded
         responseBlocks.push({
           type: 'image',

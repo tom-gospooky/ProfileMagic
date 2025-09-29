@@ -1358,7 +1358,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
 
         // Add successful results
         for (const result of successful) {
-          if (result.result.fileId) {
+          if (result.result.fileId && result.result.origin !== 'external') {
             resultBlocks.push({
               type: 'image',
               title: {
@@ -2046,7 +2046,13 @@ async function handleShareToChannelSubmission({ ack, body, client }) {
       // If we have a Slack file, make sure it is shared to the selected channel for inline rendering
       if (result.fileId) {
         try {
-          await client.files.share({ file: result.fileId, channels: selectedChannel });
+          const userToken = userTokens.getUserToken(userId, teamId);
+          if (userToken) {
+            const userClient = new WebClient(userToken);
+            await userClient.files.share({ file: result.fileId, channels: selectedChannel });
+          } else {
+            await client.files.share({ file: result.fileId, channels: selectedChannel });
+          }
         } catch (shareErr) {
           console.log('files.share failed or not needed:', shareErr.data?.error || shareErr.message);
         }

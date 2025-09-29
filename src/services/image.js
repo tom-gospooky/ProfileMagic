@@ -35,9 +35,8 @@ async function externalUploadAsSlackFile(client, imageBuffer, filename, userId) 
     await axios.put(first.upload_url, imageBuffer, {
       headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': imageBuffer.length }
     });
-    const im = await client.conversations.open({ users: userId });
-    const targetChannel = im.channel?.id;
-    const complete = await client.files.completeUploadExternal({ files: [{ id: first.file_id, title: filename }], channel_id: targetChannel });
+    // Complete without sharing to any conversation (no message created)
+    const complete = await client.files.completeUploadExternal({ files: [{ id: first.file_id, title: filename }] });
     const created = complete.files?.[0] || { id: first.file_id };
     return { ok: true, file: created };
   } catch (err) {
@@ -50,9 +49,7 @@ async function externalUploadAsSlackFile(client, imageBuffer, filename, userId) 
         await axios.put(retry.upload_url, smaller, {
           headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': smaller.length }
         });
-        const im = await client.conversations.open({ users: userId });
-        const targetChannel = im.channel?.id;
-        const complete = await client.files.completeUploadExternal({ files: [{ id: retry.file_id, title: filename }], channel_id: targetChannel });
+        const complete = await client.files.completeUploadExternal({ files: [{ id: retry.file_id, title: filename }] });
         const created = complete.files?.[0] || { id: retry.file_id };
         return { ok: true, file: created };
       } catch (err2) {
@@ -112,8 +109,19 @@ const handleApiResponse = async (response, context = 'edit', client, userId, cha
     const imageBuffer = Buffer.from(data, 'base64');
     const filename = `edited_${Date.now()}.jpg`;
     
-    // Upload to Slack for proper display (DM first to avoid auto-posting in channels)
+    // Prefer external unshared upload first to avoid auto-creating a DM/channel message
       try {
+        const extFirst = await externalUploadAsSlackFile(client, imageBuffer, filename, userId);
+        if (extFirst.ok) {
+          if (!isProduction) console.log(`External upload (unshared) created Slack file: ${extFirst.file.id}`);
+          return {
+            fileId: extFirst.file.id,
+            localUrl: await fileServer.saveTemporaryFile(imageBuffer, filename),
+            slackFile: extFirst.file,
+            origin: 'external'
+          };
+        }
+
         // Open an IM channel with the user to obtain a valid D* channel id
         let dmChannelId;
         try {

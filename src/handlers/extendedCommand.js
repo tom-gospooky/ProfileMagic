@@ -313,7 +313,7 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
     ];
 
     // Add the edited image
-    if (editedImageResult.fileId) {
+    if (editedImageResult.fileId && editedImageResult.origin !== 'external') {
       successBlocks.push({
         type: 'image',
         title: {
