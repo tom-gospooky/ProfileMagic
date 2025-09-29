@@ -1428,6 +1428,22 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
             });
           }
 
+          // Share… button: opens a caption modal and lets user post a message
+          actionElements.push({
+            type: 'button',
+            text: { type: 'plain_text', text: '📤 Share…' },
+            action_id: 'open_share_modal',
+            value: JSON.stringify({
+              results: successful.map(result => ({
+                localUrl: result.result.localUrl,
+                fileId: result.result.fileId,
+                filename: result.originalFile.name
+              })),
+              prompt: promptValue,
+              channelId: channelId
+            })
+          });
+
           // // Add "Retry" button (always show since results are initially private)
           // actionElements.push({
           //   type: 'button',
