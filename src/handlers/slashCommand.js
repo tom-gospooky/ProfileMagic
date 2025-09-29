@@ -10,6 +10,7 @@ async function handleSlashCommand({ command, ack, respond, client, body }) {
   const teamId = body.team_id;
   const channelId = body.channel_id;
   const prompt = command.text?.trim();
+  const responseUrl = body.response_url;
 
   // Acknowledge immediately with no response to open modal instantly
   await ack();
@@ -62,7 +63,7 @@ async function handleSlashCommand({ command, ack, respond, client, body }) {
     }
 
     // User is authorized, proceed with file selection modal
-    await showFileSelectionModal(client, body.trigger_id, teamId, userId, channelId, prompt);
+    await showFileSelectionModal(client, body.trigger_id, teamId, userId, channelId, prompt, responseUrl);
   } catch (error) {
     console.error('Error in slash command:', error);
     await respond({
@@ -220,7 +221,7 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
   });
 }
 
-async function showFileSelectionModal(client, triggerId, teamId, userId, channelId, prompt = '') {
+async function showFileSelectionModal(client, triggerId, teamId, userId, channelId, prompt = '', responseUrl = null) {
   try {
     // Get user profile photo for optional reference
     const profilePhoto = await getUserProfilePhoto(client, userId);
@@ -282,7 +283,7 @@ async function showFileSelectionModal(client, triggerId, teamId, userId, channel
         type: 'plain_text',
         text: 'Cancel'
       },
-      private_metadata: JSON.stringify({ teamId, userId, channelId, profilePhoto: profilePhoto ? profilePhoto : null })
+      private_metadata: JSON.stringify({ teamId, userId, channelId, responseUrl: responseUrl || null, profilePhoto: profilePhoto ? profilePhoto : null })
     };
 
     // Add profile photo option if available
