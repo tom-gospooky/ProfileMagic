@@ -1884,8 +1884,92 @@ async function handleSendToChannel({ ack, body, client }) {
   const parsed = JSON.parse(body.actions[0].value);
   const { results, prompt, channelId } = parsed;
 
-  // Open a share modal so the user can add a caption and confirm channel
   try {
+    // Build public message blocks
+    const messageBlocks = [
+      {
+        type: 'section',
+        text: { type: 'mrkdwn', text: `🎨 *<@${userId}> shared AI-transformed image*\n\n*Prompt:* "${prompt}"` }
+      }
+    ];
+
+    for (const result of results) {
+      if (result.fileId) {
+        messageBlocks.push({
+          type: 'image',
+          title: { type: 'plain_text', text: `✨ ${result.filename}` },
+          slack_file: { id: result.fileId },
+          alt_text: `AI-transformed ${result.filename}`
+        });
+      } else if (result.localUrl) {
+        messageBlocks.push({
+          type: 'image',
+          title: { type: 'plain_text', text: `✨ ${result.filename}` },
+          image_url: result.localUrl,
+          alt_text: `AI-transformed ${result.filename}`
+        });
+      }
+    }
+
+    // Post publicly into the current channel
+    await ensureBotInChannel(client, channelId);
+    await client.chat.postMessage({
+      channel: channelId,
+      text: `🎨 <@${userId}> shared AI-transformed image using prompt: "${prompt}"`,
+      blocks: messageBlocks
+    });
+
+    // Send an ephemeral helper to let the user re-share with a custom caption
+    const helperBlocks = [
+      {
+        type: 'section',
+        text: { type: 'mrkdwn', text: '✅ Your image has been posted to this channel. Want to add your own caption and share again?' }
+      }
+    ];
+    if (results[0]?.fileId) {
+      helperBlocks.push({
+        type: 'image',
+        title: { type: 'plain_text', text: 'Preview' },
+        slack_file: { id: results[0].fileId },
+        alt_text: 'Preview'
+      });
+    } else if (results[0]?.localUrl) {
+      helperBlocks.push({
+        type: 'image',
+        title: { type: 'plain_text', text: 'Preview' },
+        image_url: results[0].localUrl,
+        alt_text: 'Preview'
+      });
+    }
+    helperBlocks.push({
+      type: 'actions',
+      elements: [
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: '📝 Add Caption & Share' },
+          action_id: 'open_share_modal',
+          value: JSON.stringify({ results, prompt, channelId })
+        }
+      ]
+    });
+
+    await client.chat.postEphemeral({ channel: channelId, user: userId, text: 'Shared', blocks: helperBlocks });
+  } catch (error) {
+    console.error('Error sending to channel:', error);
+    await client.chat.postEphemeral({
+      channel: body.channel.id,
+      user: userId,
+      text: '❌ Failed to send images to channel. Please invite the app to the channel or try again.'
+    });
+  }
+}
+
+async function handleOpenShareModal({ ack, body, client }) {
+  await ack();
+  const userId = body.user.id;
+  try {
+    const payload = JSON.parse(body.actions[0].value);
+    const { results, prompt, channelId } = payload;
     await client.views.open({
       trigger_id: body.trigger_id,
       view: {
@@ -1918,10 +2002,7 @@ async function handleSendToChannel({ ack, body, client }) {
             },
             label: { type: 'plain_text', text: 'Caption' }
           },
-          {
-            type: 'context',
-            elements: [{ type: 'mrkdwn', text: 'Images will be attached to your message.' }]
-          }
+          { type: 'context', elements: [{ type: 'mrkdwn', text: 'Images will be attached to your message.' }] }
         ]
       }
     });
@@ -2005,6 +2086,7 @@ module.exports = {
   handleProfileOnlyModal,
   handleUploadGuide,
   handleProfileReferenceToggle,
-  handleSendToChannel
-  ,handleShareToChannelSubmission
+  handleSendToChannel,
+  handleShareToChannelSubmission,
+  handleOpenShareModal
 };
