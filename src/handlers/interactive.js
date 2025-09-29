@@ -1392,8 +1392,9 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
             value: JSON.stringify({ prompt: promptValue, channelId })
           });
 
-          // Add profile picture button for single successful result
-          if (successful.length === 1) {
+          // Add profile picture button only if user opted to include profile photo
+          const profileSelected = Array.isArray(useProfileRef) && useProfileRef.length > 0;
+          if (successful.length === 1 && profileSelected) {
             actionElements.unshift({
               type: 'button',
               text: { type: 'plain_text', text: '✅ Set as Profile Picture' },
@@ -1403,6 +1404,15 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
                 editedImage: successful[0].result.localUrl,
                 prompt: promptValue
               })
+            });
+          }
+
+          // Add download button for single result
+          if (successful.length === 1 && successful[0].result?.localUrl) {
+            actionElements.push({
+              type: 'button',
+              text: { type: 'plain_text', text: '⬇️ Download' },
+              url: `${successful[0].result.localUrl}?dl=1`
             });
           }
 

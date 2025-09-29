@@ -162,6 +162,20 @@ app.get('/auth/slack/callback', async (req, res) => {
 });
 
 // Static files under /files/*
+// Direct-download helper: if query has ?dl=1, force attachment
+app.get('/files/:filename', async (req, res, next) => {
+  try {
+    if (req.query && req.query.dl === '1') {
+      const filePath = path.join(TEMP_DIR, req.params.filename);
+      return res.download(filePath, req.params.filename);
+    }
+    return next();
+  } catch (e) {
+    console.error('Download route error:', e.message);
+    return res.status(404).json({ error: 'File not found' });
+  }
+});
+
 app.use('/files', express.static(TEMP_DIR, {
   fallthrough: false, // 404 instead of next()
   // Optional: modest caching
