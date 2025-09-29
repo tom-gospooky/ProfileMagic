@@ -2,6 +2,8 @@ const { getPreset } = require('../utils/presets');
 const slackService = require('../services/slack');
 const imageService = require('../services/image');
 const axios = require('axios');
+const userTokens = require('../services/userTokens');
+const { WebClient } = require('@slack/web-api');
 const { getOAuthUrl } = require('../services/fileServer');
 const { showExtendedModal } = require('./extendedCommand');
 // const fileCache = require('../utils/fileCache'); // Currently unused
@@ -2002,18 +2004,7 @@ async function handleOpenShareModal({ ack, body, client }) {
         close: { type: 'plain_text', text: 'Cancel' },
         private_metadata: JSON.stringify({ results, prompt, defaultChannel: channelId, userId }),
         blocks: [
-          {
-            type: 'input',
-            block_id: 'target_channel',
-            element: {
-              type: 'conversations_select',
-              action_id: 'share_target_channel',
-              initial_conversation: channelId,
-              placeholder: { type: 'plain_text', text: 'Select a conversation' },
-              filter: { include: ['im', 'mpim', 'private', 'public'] }
-            },
-            label: { type: 'plain_text', text: 'Conversation' }
-          },
+          ...( (results && results[0]?.localUrl) ? [{ type: 'image', image_url: results[0].localUrl, alt_text: 'Preview' }] : []),
           {
             type: 'input',
             block_id: 'caption_input',
@@ -2023,9 +2014,9 @@ async function handleOpenShareModal({ ack, body, client }) {
               action_id: 'share_caption',
               placeholder: { type: 'plain_text', text: 'Add a message (optional)' }
             },
-            label: { type: 'plain_text', text: 'Caption' }
+            label: { type: 'plain_text', text: 'Caption (optional)' }
           },
-          { type: 'context', elements: [{ type: 'mrkdwn', text: 'Images will be attached to your message.' }] }
+          { type: 'context', elements: [{ type: 'mrkdwn', text: 'Images will be attached to your message in this channel.' }] }
         ]
       }
     });
@@ -2039,10 +2030,10 @@ async function handleShareToChannelSubmission({ ack, body, client }) {
   await ack({ response_action: 'clear' });
 
   const userId = body.user.id;
+  const teamId = body.team.id;
   const meta = JSON.parse(body.view.private_metadata || '{}');
-  const { results, prompt } = meta;
-
-  const selectedChannel = body.view.state.values.target_channel?.share_target_channel?.selected_conversation;
+  const { results, prompt, defaultChannel } = meta;
+  const selectedChannel = defaultChannel;
   const caption = body.view.state.values.caption_input?.share_caption?.value?.trim();
 
   const isPublic = typeof selectedChannel === 'string' && selectedChannel.startsWith('C');
@@ -2077,11 +2068,25 @@ async function handleShareToChannelSubmission({ ack, body, client }) {
       }
     }
 
-    if (isPublic) {
-      await ensureBotInChannel(client, selectedChannel);
+    // Prefer posting as the user if we have their token (better UX in private DMs/G-channels)
+    const userToken = userTokens.getUserToken(userId, teamId);
+    let posted = false;
+    if (userToken) {
+      try {
+        const userClient = new WebClient(userToken);
+        await userClient.chat.postMessage({ channel: selectedChannel, text: caption || `🎨 Shared AI-transformed images`, blocks: messageBlocks });
+        posted = true;
+      } catch (userPostErr) {
+        console.log('User-token post failed, falling back to bot:', userPostErr.data?.error || userPostErr.message);
+      }
     }
 
-    await client.chat.postMessage({ channel: selectedChannel, text: caption || `🎨 Shared AI-transformed images`, blocks: messageBlocks });
+    if (!posted) {
+      if (isPublic) {
+        await ensureBotInChannel(client, selectedChannel);
+      }
+      await client.chat.postMessage({ channel: selectedChannel, text: caption || `🎨 Shared AI-transformed images`, blocks: messageBlocks });
+    }
 
     // Best-effort confirmation via ephemeral (might fail for private channels if bot not a member)
     try {
