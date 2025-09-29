@@ -47,6 +47,7 @@ app.view('reference_image_modal', interactiveHandler.handleReferenceImageSubmiss
 app.view('boo_ext_modal', extendedCommandHandler.handleExtendedModalSubmission);
 app.view('file_selection_modal', interactiveHandler.handleFileSelectionModal);
 app.view('profile_only_modal', interactiveHandler.handleProfileOnlyModal);
+app.view('share_to_channel_modal', interactiveHandler.handleShareToChannelSubmission);
 app.action('select_preset', interactiveHandler.handlePresetSelect);
 app.action('approve_edit', interactiveHandler.handleApprove);
 app.action('retry_edit', interactiveHandler.handleRetry);

@@ -1857,78 +1857,108 @@ async function handleSendToChannel({ ack, body, client }) {
   await ack();
 
   const userId = body.user.id;
-  const isProduction = process.env.NODE_ENV === 'production';
+  const parsed = JSON.parse(body.actions[0].value);
+  const { results, prompt, channelId } = parsed;
 
+  // Open a share modal so the user can add a caption and confirm channel
   try {
-    const payload = JSON.parse(body.actions[0].value);
-    const { results, prompt, channelId } = payload;
+    await client.views.open({
+      trigger_id: body.trigger_id,
+      view: {
+        type: 'modal',
+        callback_id: 'share_to_channel_modal',
+        title: { type: 'plain_text', text: 'Share to Channel' },
+        submit: { type: 'plain_text', text: 'Share' },
+        close: { type: 'plain_text', text: 'Cancel' },
+        private_metadata: JSON.stringify({ results, prompt, defaultChannel: channelId, userId }),
+        blocks: [
+          {
+            type: 'input',
+            block_id: 'target_channel',
+            element: {
+              type: 'channels_select',
+              action_id: 'share_target_channel',
+              initial_channel: channelId,
+              placeholder: { type: 'plain_text', text: 'Select a channel' }
+            },
+            label: { type: 'plain_text', text: 'Channel' }
+          },
+          {
+            type: 'input',
+            block_id: 'caption_input',
+            optional: true,
+            element: {
+              type: 'plain_text_input',
+              action_id: 'share_caption',
+              placeholder: { type: 'plain_text', text: 'Add a message (optional)' }
+            },
+            label: { type: 'plain_text', text: 'Caption' }
+          },
+          {
+            type: 'context',
+            elements: [{ type: 'mrkdwn', text: 'Images will be attached to your message.' }]
+          }
+        ]
+      }
+    });
+  } catch (e) {
+    console.error('Failed to open Share modal:', e);
+  }
+}
 
-    if (!isProduction) {
-      console.log(`Sending ${results.length} results to channel ${channelId}`);
-    }
+async function handleShareToChannelSubmission({ ack, body, client }) {
+  // Close modal immediately
+  await ack({ response_action: 'clear' });
 
-    // Build message blocks for channel
+  const userId = body.user.id;
+  const meta = JSON.parse(body.view.private_metadata || '{}');
+  const { results, prompt } = meta;
+
+  const selectedChannel = body.view.state.values.target_channel?.share_target_channel?.selected_channel;
+  const caption = body.view.state.values.caption_input?.share_caption?.value?.trim();
+
+  const isPublic = typeof selectedChannel === 'string' && selectedChannel.startsWith('C');
+  try {
+    // Build blocks
     const messageBlocks = [
       {
         type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: `🎨 *<@${userId}> shared AI-transformed images*\n\n*Prompt:* "${prompt}"`
-        }
+        text: { type: 'mrkdwn', text: caption && caption.length ? caption : `🎨 *<@${userId}> shared AI-transformed images*\n\n*Prompt:* "${prompt}"` }
       }
     ];
 
-    // Add each successful result
     for (const result of results) {
       if (result.fileId) {
         messageBlocks.push({
           type: 'image',
-          title: {
-            type: 'plain_text',
-            text: `✨ ${result.filename}`
-          },
-          slack_file: {
-            id: result.fileId
-          },
+          title: { type: 'plain_text', text: `✨ ${result.filename}` },
+          slack_file: { id: result.fileId },
           alt_text: `AI-transformed ${result.filename}`
         });
       } else if (result.localUrl) {
         messageBlocks.push({
           type: 'image',
-          title: {
-            type: 'plain_text',
-            text: `✨ ${result.filename}`
-          },
+          title: { type: 'plain_text', text: `✨ ${result.filename}` },
           image_url: result.localUrl,
           alt_text: `AI-transformed ${result.filename}`
         });
       }
     }
 
-    // Ensure bot can post, then send to channel
-    await ensureBotInChannel(client, channelId);
-    await client.chat.postMessage({
-      channel: channelId,
-      text: `🎨 <@${userId}> shared AI-transformed images using prompt: "${prompt}"`,
-      blocks: messageBlocks
-    });
+    if (isPublic) {
+      await ensureBotInChannel(client, selectedChannel);
+    }
 
-    // Send confirmation to user
-    await client.chat.postEphemeral({
-      channel: channelId,
-      user: userId,
-      text: '✅ Your transformed images have been shared with the channel!'
-    });
+    await client.chat.postMessage({ channel: selectedChannel, text: caption || `🎨 Shared AI-transformed images`, blocks: messageBlocks });
 
+    // Best-effort confirmation via ephemeral (might fail for private channels if bot not a member)
+    try {
+      await client.chat.postEphemeral({ channel: selectedChannel, user: userId, text: '✅ Shared your images to this channel.' });
+    } catch (_) {}
   } catch (error) {
-    console.error('Error sending to channel:', error);
-
-    // Send error message to user
-    await client.chat.postEphemeral({
-      channel: body.channel.id,
-      user: userId,
-      text: '❌ Failed to send images to channel. Please invite the app to the channel or try again.'
-    });
+    console.error('Error sharing to channel from modal:', error);
+    // Last resort: DM the user with instructions
+    await client.chat.postMessage({ channel: userId, text: '❌ Could not share to the selected channel. If it is private, please invite the app and try again.' });
   }
 }
 
@@ -1952,4 +1982,5 @@ module.exports = {
   handleUploadGuide,
   handleProfileReferenceToggle,
   handleSendToChannel
+  ,handleShareToChannelSubmission
 };
