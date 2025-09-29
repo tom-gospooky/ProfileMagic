@@ -856,13 +856,22 @@ async function handleOpenExtendedModal({ ack, body, client }) {
 async function handleMessageShortcut({ ack, shortcut, client }) {
   await ack();
 
-  const userId = shortcut.user.id;
-  const messageTs = shortcut.message_ts;
-  const channelId = shortcut.channel.id;
+  const userId = shortcut.user?.id || shortcut.user_id;
+  const messageTs = shortcut.message_ts || shortcut.message?.ts || shortcut?.container?.message_ts;
+  const channelId = shortcut.channel?.id || shortcut.channel_id || shortcut?.container?.channel_id || shortcut.message?.channel;
   const isProduction = process.env.NODE_ENV === 'production';
 
   if (!isProduction) {
     console.log(`Message shortcut triggered by user ${userId} on message ${messageTs}`);
+  }
+
+  if (!channelId || !messageTs) {
+    console.error('Shortcut payload missing channel or message_ts');
+    try {
+      // Best-effort DM back to the user with guidance
+      await client.chat.postMessage({ channel: userId, text: '❌ Could not resolve the selected message or channel. Please try again from a channel or thread message.' });
+    } catch (_) {}
+    return;
   }
 
   try {
@@ -947,11 +956,12 @@ async function handleMessageShortcut({ ack, shortcut, client }) {
     const imageToEdit = images[0];
     const referenceImage = images.length > 1 ? images[1] : null;
 
-    // Show processing message
+    // Show processing message (in thread if applicable)
     const processingMessage = await client.chat.postEphemeral({
       channel: channelId,
       user: userId,
-      text: `🎨 *Processing your image with NB shortcut...*\n\n*Prompt:* "${prompt}"\n*Image:* ${imageToEdit.name}\n${referenceImage ? `*Reference:* ${referenceImage.name}` : ''}\n\nThis may take a moment!`
+      text: `🎨 *Processing your image with NB shortcut...*\n\n*Prompt:* "${prompt}"\n*Image:* ${imageToEdit.name}\n${referenceImage ? `*Reference:* ${referenceImage.name}` : ''}\n\nThis may take a moment!`,
+      thread_ts: message.thread_ts || messageTs
     });
 
     try {
@@ -1035,12 +1045,13 @@ async function handleMessageShortcut({ ack, shortcut, client }) {
         ]
       });
 
-      // Update the processing message with results
-      await client.chat.update({
+      // Ephemerals can't be updated—send a new ephemeral with blocks (in-thread if applicable)
+      await client.chat.postEphemeral({
         channel: channelId,
-        ts: processingMessage.ts,
+        user: userId,
         text: '✅ *Image edited with NB shortcut!*',
-        blocks: successBlocks
+        blocks: successBlocks,
+        thread_ts: message.thread_ts || messageTs
       });
 
     } catch (editError) {
@@ -1055,11 +1066,12 @@ async function handleMessageShortcut({ ack, shortcut, client }) {
         errorMessage = `⚠️ **Generation Failed**\n\n${editError.userMessage}`;
       }
 
-      // Update processing message with error
-      await client.chat.update({
+      // Send new ephemeral with error (in-thread if applicable)
+      await client.chat.postEphemeral({
         channel: channelId,
-        ts: processingMessage.ts,
-        text: errorMessage
+        user: userId,
+        text: errorMessage,
+        thread_ts: message.thread_ts || messageTs
       });
     }
 
