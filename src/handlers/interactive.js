@@ -1430,32 +1430,32 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
             });
           }
 
-          // Add "Send to Channel" button (always show since results are initially private)
-          actionElements.push({
-            type: 'button',
-            text: { type: 'plain_text', text: '📢 Send to Channel' },
-            action_id: 'send_to_channel',
-            value: JSON.stringify({
-              results: successful.map(result => ({
-                localUrl: result.result.localUrl,
-                fileId: result.result.fileId,
-                filename: result.originalFile.name
-              })),
-              prompt: promptValue,
-              channelId: channelId
-            })
-          });
+          // // Add "Retry" button (always show since results are initially private)
+          // actionElements.push({
+          //   type: 'button',
+          //   text: { type: 'plain_text', text: '📢 Retry' },
+          //   action_id: 'send_to_channel',
+          //   value: JSON.stringify({
+          //     results: successful.map(result => ({
+          //       localUrl: result.result.localUrl,
+          //       fileId: result.result.fileId,
+          //       filename: result.originalFile.name
+          //     })),
+          //     prompt: promptValue,
+          //     channelId: channelId
+          //   })
+          // });
 
-          // Add a privacy hint context making it clear this preview is private
-          resultBlocks.push({
-            type: 'context',
-            elements: [
-              {
-                type: 'mrkdwn',
-                text: '🔒 *Private preview* — only you can see this. Click “Send to Channel” to share.'
-              }
-            ]
-          });
+          // // Add a privacy hint context making it clear this preview is private
+          // resultBlocks.push({
+          //   type: 'context',
+          //   elements: [
+          //     {
+          //       type: 'mrkdwn',
+          //       text: '🔒 *Private preview* — only you can see this. Click “Retry” to share.'
+          //     }
+          //   ]
+          // });
 
           resultBlocks.push({
             type: 'actions',
@@ -1464,7 +1464,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
         }
 
         // Update the processing message with results (handle response_url vs chat.update)
-        const successText = `✅ *Transformation complete!*\n*Prompt:* "${promptValue}"\n*Successful:* ${successful.length}\n*Failed:* ${failed.length}`;
+        const successText = `✅ *Generation finished!*\n*Prompt:* "${promptValue}"`;
 
         if (usedResponseUrl && responseUrl) {
           try {
