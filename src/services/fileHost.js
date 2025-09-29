@@ -44,7 +44,7 @@ function startFileServer() {
       res.status(200).json({ 
         status: 'ok', 
         timestamp: new Date().toISOString(),
-        service: 'ProfileMagic FileHost',
+        service: 'Boo FileHost',
         port: PORT
       });
     });
@@ -52,9 +52,9 @@ function startFileServer() {
     // Add a root endpoint
     app.get('/', (req, res) => {
       res.status(200).json({ 
-        service: 'ProfileMagic', 
+        service: 'Boo', 
         status: 'running',
-        message: 'ProfileMagic Slack bot is running!',
+        message: 'Boo Slack app is running!',
         healthCheck: '/health'
       });
     });

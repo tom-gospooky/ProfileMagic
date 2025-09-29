@@ -15,14 +15,14 @@ async function ensureTempDir() {
 
 // Basic root + health
 app.get('/', (_, res) => res.status(200).json({ 
-  service: 'ProfileMagic FileServer',
+  service: 'Boo FileServer',
   status: 'running',
   timestamp: new Date().toISOString()
 }));
 
 app.get('/health', (_, res) => res.status(200).json({ 
   status: 'ok',
-  service: 'ProfileMagic FileServer',
+  service: 'Boo FileServer',
   timestamp: new Date().toISOString(),
   tempDir: TEMP_DIR
 }));

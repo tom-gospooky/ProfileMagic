@@ -75,7 +75,7 @@ app.error((error) => {
 
 (async () => {
   try {
-    console.log('🚀 Starting ProfileMagic...');
+console.log('🚀 Starting Boo...');
     if (!isProduction) {
       console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
       console.log(`🔌 Railway PORT: ${process.env.PORT}`);
@@ -99,7 +99,7 @@ app.error((error) => {
     // Start Slack app in Socket Mode (no HTTP port needed)
     console.log('⚡ Starting Slack app...');
     await app.start();
-    console.log('⚡️ ProfileMagic is running!');
+console.log('⚡️ Boo is running!');
     
   } catch (error) {
     console.error('❌ Failed to start app:', error.message);

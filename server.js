@@ -38,7 +38,7 @@ async function ensureTempDir() {
 
 // Basic root + health
 app.get('/', (_, res) => res.status(200).json({ 
-  service: 'ProfileMagic FileServer',
+  service: 'Boo FileServer',
   status: 'running',
   timestamp: new Date().toISOString(),
   port: process.env.PORT,
@@ -47,7 +47,7 @@ app.get('/', (_, res) => res.status(200).json({
 
 app.get('/health', (_, res) => res.status(200).json({ 
   status: 'ok',
-  service: 'ProfileMagic FileServer',
+  service: 'Boo FileServer',
   timestamp: new Date().toISOString(),
   port: process.env.PORT
 }));
@@ -101,7 +101,7 @@ app.use((err, req, res, next) => {
 
 const PORT = Number(process.env.PORT) || 3000;
 
-console.log(`🚀 Starting ProfileMagic FileServer...`);
+console.log(`🚀 Starting Boo FileServer...`);
 console.log(`🔧 PORT: ${process.env.PORT} (using ${PORT})`);
 console.log(`📁 TEMP_DIR: ${TEMP_DIR}`);
 

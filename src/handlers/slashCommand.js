@@ -28,7 +28,7 @@ async function handleSlashCommand({ command, ack, respond, client, body }) {
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: '🔐 *ProfileMagic needs permission to update your profile photo!*\n\nTo use this feature, you need to authorize the app with your personal Slack account.'
+              text: '🔐 *Boo needs permission to update your profile photo!*\n\nTo use this feature, you need to authorize the app with your personal Slack account.'
             }
           },
           {
@@ -41,7 +41,7 @@ async function handleSlashCommand({ command, ack, respond, client, body }) {
               type: 'button',
               text: {
                 type: 'plain_text',
-                text: '🔗 Authorize ProfileMagic',
+                text: '🔗 Authorize Boo',
                 emoji: true
               },
               url: authUrl,
@@ -214,7 +214,7 @@ async function showFileSelectionModal(client, triggerId, teamId, userId, channel
       callback_id: 'file_selection_modal',
       title: {
         type: 'plain_text',
-        text: 'ProfileMagic ✨'
+        text: 'Boo ✨'
       },
       blocks: [
         {
@@ -332,7 +332,7 @@ async function showNoImagesModal(client, triggerId, prompt = '') {
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: '*No recent images found!*\n\nTo use ProfileMagic, you need to upload some images first:'
+          text: '*No recent images found!*\n\nTo use Boo, you need to upload some images first:'
         }
       },
       {
@@ -346,7 +346,7 @@ async function showNoImagesModal(client, triggerId, prompt = '') {
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: '*💡 Pro tip:* Make sure ProfileMagic bot is in any channel where you upload images, or upload directly to this DM.'
+          text: '*💡 Pro tip:* Make sure the Boo app is in any channel where you upload images, or upload directly to this DM.'
         }
       },
       {
@@ -478,7 +478,7 @@ async function showPresetModal(client, triggerId) {
     callback_id: 'preset_selection_modal',
     title: {
       type: 'plain_text',
-      text: 'Profile Magic ✨'
+      text: 'Boo ✨'
     },
     blocks: [
       {

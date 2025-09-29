@@ -131,7 +131,7 @@ async function handleApprove({ ack, body, client }) {
               type: 'section',
               text: {
                 type: 'mrkdwn',
-                text: '*ProfileMagic needs permission to update your profile photo!*\n\nClick the button below to authorize the app.'
+                text: '*Boo needs permission to update your profile photo!*\n\nClick the button below to authorize the app.'
               }
             },
             {
@@ -141,7 +141,7 @@ async function handleApprove({ ack, body, client }) {
                   type: 'button',
                   text: {
                     type: 'plain_text',
-                    text: '🔗 Authorize ProfileMagic'
+                    text: '🔗 Authorize Boo'
                   },
                   url: authUrl,
                   style: 'primary'
@@ -303,7 +303,7 @@ async function handleApproveMessage({ ack, body, client }) {
               type: 'section',
               text: {
                 type: 'mrkdwn',
-                text: '*ProfileMagic needs permission to update your profile photo!*\n\nClick the button below to authorize the app.'
+                text: '*Boo needs permission to update your profile photo!*\n\nClick the button below to authorize the app.'
               }
             },
             {
@@ -313,7 +313,7 @@ async function handleApproveMessage({ ack, body, client }) {
                   type: 'button',
                   text: {
                     type: 'plain_text',
-                    text: '🔗 Authorize ProfileMagic'
+                    text: '🔗 Authorize Boo'
                   },
                   url: authUrl,
                   style: 'primary'
@@ -741,7 +741,7 @@ async function handleApproveExtended({ ack, body, client }) {
               type: 'section',
               text: {
                 type: 'mrkdwn',
-                text: '*ProfileMagic needs permission to update your profile photo!*\n\nClick the button below to authorize the app.'
+                text: '*Boo needs permission to update your profile photo!*\n\nClick the button below to authorize the app.'
               }
             },
             {
@@ -751,7 +751,7 @@ async function handleApproveExtended({ ack, body, client }) {
                   type: 'button',
                   text: {
                     type: 'plain_text',
-                    text: '🔗 Authorize ProfileMagic'
+                    text: '🔗 Authorize Boo'
                   },
                   url: authUrl,
                   style: 'primary'
@@ -1804,7 +1804,7 @@ async function handleUploadGuide({ ack, body, client }) {
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: '*Step 4: Upload to this channel* 📤\nMake sure to upload them to this channel or DM where ProfileMagic can see them.'
+              text: '*Step 4: Upload to this channel* 📤\nMake sure to upload them to this channel or DM where Boo can see them.'
             }
           },
           {
@@ -1821,7 +1821,7 @@ async function handleUploadGuide({ ack, body, client }) {
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: '*💡 Tips:*\n• You can upload multiple images at once\n• ProfileMagic works with JPG, PNG, GIF formats\n• Images stay private to this conversation\n• Larger images will be automatically resized'
+              text: '*💡 Tips:*\n• You can upload multiple images at once\n• Boo works with JPG, PNG, GIF formats\n• Images stay private to this conversation\n• Larger images will be automatically resized'
             }
           }
         ],

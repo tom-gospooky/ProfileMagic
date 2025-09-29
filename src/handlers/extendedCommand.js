@@ -23,7 +23,7 @@ async function handleExtendedSlashCommand({ command, ack, respond, client, body 
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: '🔐 *ProfileMagic Extended needs permission to update your profile photo!*\n\nTo use this feature, you need to authorize the app with your personal Slack account.'
+              text: '🔐 *Boo Extended needs permission to update your profile photo!*\n\nTo use this feature, you need to authorize the app with your personal Slack account.'
             }
           },
           {
@@ -36,7 +36,7 @@ async function handleExtendedSlashCommand({ command, ack, respond, client, body 
               type: 'button',
               text: {
                 type: 'plain_text',
-                text: '🔗 Authorize ProfileMagic',
+                text: '🔗 Authorize Boo',
                 emoji: true
               },
               url: authUrl,
@@ -67,7 +67,7 @@ async function showExtendedModal(client, triggerId, initialPrompt = '', userId, 
       callback_id: 'boo_ext_modal',
       title: {
         type: 'plain_text',
-        text: 'ProfileMagic Extended ✨'
+        text: 'Boo Extended ✨'
       },
       submit: {
         type: 'plain_text',
@@ -382,7 +382,7 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
     } else if (error.message === 'GENERATION_FAILED') {
       errorMessage = `⚠️ **Generation Failed**\n\n${error.userMessage}`;
     } else if (error.message === 'USER_NOT_AUTHORIZED') {
-      errorMessage = '🔐 *Authorization required.*\n\nPlease authorize ProfileMagic to update your profile photo.';
+      errorMessage = '🔐 *Authorization required.*\n\nPlease authorize Boo to update your profile photo.';
     }
 
     // Send error message to user

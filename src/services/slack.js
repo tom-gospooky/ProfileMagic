@@ -59,7 +59,7 @@ async function updateProfilePhoto(botClient, userId, teamId, imageUrl) {
       responseType: 'stream',
       timeout: 30000, // 30 second timeout
       headers: {
-        'User-Agent': 'ProfileMagic/1.0'
+        'User-Agent': 'Boo/1.0'
       },
       maxRedirects: 5
     });
@@ -119,7 +119,7 @@ async function updateProfilePhoto(botClient, userId, teamId, imageUrl) {
 
 async function downloadImage(imageUrl) {
   try {
-    const headers = { 'User-Agent': 'ProfileMagic/1.0' };
+    const headers = { 'User-Agent': 'Boo/1.0' };
     // If this is a Slack private file URL, include bot auth
     try {
       const u = new URL(imageUrl);
@@ -159,7 +159,7 @@ async function downloadImage(imageUrl) {
 // Variant that returns both buffer and mimeType
 async function downloadImageWithMime(imageUrl) {
   try {
-    const headers = { 'User-Agent': 'ProfileMagic/1.0' };
+    const headers = { 'User-Agent': 'Boo/1.0' };
     try {
       const u = new URL(imageUrl);
       if (u.hostname.includes('slack.com')) {

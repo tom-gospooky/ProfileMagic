@@ -1,6 +1,6 @@
 {
   "display_information": {
-    "name": "Profile Magic",
+    "name": "Boo",
     "description": "AI-powered profile picture editor using Google Gemini",
     "background_color": "#4A90E2",
     "long_description": "Transform your Slack profile picture with AI! Choose from fun presets like 'New Do', 'Cartoon Me', or 'Teleport Me', or describe your own custom transformation. Preview before applying - no permanent changes without your approval!"
@@ -12,7 +12,7 @@
       "messages_tab_read_only_enabled": false
     },
     "bot_user": {
-      "display_name": "Profile Magic",
+      "display_name": "Boo",
       "always_online": true
     },
     "shortcuts": [
