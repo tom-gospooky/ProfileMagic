@@ -157,7 +157,6 @@ const handleApiResponse = async (response, context = 'edit', client, userId, cha
       if (!isProduction) console.log(`Saved edited image locally: ${fileUrl}`);
       return { fileId: null, localUrl: fileUrl, slackFile: null, origin: 'fallback' };
     }
-    }
   }
 
   // If no image, check for other reasons
