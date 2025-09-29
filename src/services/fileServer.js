@@ -194,7 +194,7 @@ app.use((err, req, res, next) => {
 });
 
 // Cleanup job (non-blocking)
-function startCleanupJob(dir, maxAgeMs = 30 * 60 * 1000) {
+function startCleanupJob(dir, maxAgeMs = (Number(process.env.FILE_TTL_MINUTES || 120) * 60 * 1000)) {
   const fsNative = require('fs');
   const { join } = require('path');
   

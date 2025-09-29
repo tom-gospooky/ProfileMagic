@@ -853,16 +853,25 @@ async function handleOpenExtendedModal({ ack, body, client }) {
   }
 }
 
-async function handleMessageShortcut({ ack, shortcut, client }) {
+async function handleMessageShortcut({ ack, shortcut, body, client }) {
   await ack();
 
-  const userId = shortcut.user?.id || shortcut.user_id;
-  const messageTs = shortcut.message_ts || shortcut.message?.ts || shortcut?.container?.message_ts;
-  const channelId = shortcut.channel?.id || shortcut.channel_id || shortcut?.container?.channel_id || shortcut.message?.channel;
+  const sc = shortcut || {};
+  const b = body || {};
+  const container = sc.container || b.container || {};
+  const msg = sc.message || b.message || {};
+
+  const userId = sc.user?.id || b.user?.id || sc.user_id || b.user_id;
+  const messageTs = sc.message_ts || msg.ts || container.message_ts || b.message_ts;
+  const channelId = sc.channel?.id || sc.channel_id || b.channel?.id || b.channel_id || container.channel_id || msg.channel || msg.channel_id;
+  const threadTs = msg.thread_ts || container.thread_ts || messageTs;
   const isProduction = process.env.NODE_ENV === 'production';
 
   if (!isProduction) {
-    console.log(`Message shortcut triggered by user ${userId} on message ${messageTs}`);
+    console.log('Shortcut debug:', {
+      userId, messageTs, channelId,
+      hasContainer: !!container.channel_id, hasMsg: !!msg.ts
+    });
   }
 
   if (!channelId || !messageTs) {
@@ -961,7 +970,7 @@ async function handleMessageShortcut({ ack, shortcut, client }) {
       channel: channelId,
       user: userId,
       text: `🎨 *Processing your image with NB shortcut...*\n\n*Prompt:* "${prompt}"\n*Image:* ${imageToEdit.name}\n${referenceImage ? `*Reference:* ${referenceImage.name}` : ''}\n\nThis may take a moment!`,
-      thread_ts: message.thread_ts || messageTs
+      thread_ts: threadTs
     });
 
     try {
@@ -1051,7 +1060,7 @@ async function handleMessageShortcut({ ack, shortcut, client }) {
         user: userId,
         text: '✅ *Image edited with NB shortcut!*',
         blocks: successBlocks,
-        thread_ts: message.thread_ts || messageTs
+        thread_ts: threadTs
       });
 
     } catch (editError) {
@@ -1071,7 +1080,7 @@ async function handleMessageShortcut({ ack, shortcut, client }) {
         channel: channelId,
         user: userId,
         text: errorMessage,
-        thread_ts: message.thread_ts || messageTs
+        thread_ts: threadTs
       });
     }
 

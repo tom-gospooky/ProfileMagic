@@ -96,7 +96,7 @@ function cleanupOldFiles() {
 
   const files = fs.readdirSync(tempDir);
   const now = Date.now();
-  const maxAge = 30 * 60 * 1000; // 30 minutes
+  const maxAge = Number(process.env.FILE_TTL_MINUTES || 120) * 60 * 1000; // default 120 minutes
 
   files.forEach(file => {
     const filePath = path.join(tempDir, file);
