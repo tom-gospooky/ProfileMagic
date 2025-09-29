@@ -1157,15 +1157,13 @@ async function ensureBotInChannel(client, channelId) {
 
 // Robust message delivery with fallback cascade
 // Returns Slack API result augmented with { deliveryMethod }
-async function sendMessageRobust(client, channelId, userId, text, blocks = undefined) {
+// options.allowPublic: when true, may post publicly; otherwise never posts publicly
+async function sendMessageRobust(client, channelId, userId, text, blocks = undefined, options = {}) {
+  const allowPublic = !!options.allowPublic;
   const isImChannel = typeof channelId === 'string' && channelId.startsWith('D');
-  const methods = [
-    {
-      name: 'public_message',
-      fn: () => client.chat.postMessage({ channel: channelId, text, blocks })
-    }
-  ];
+  const methods = [];
 
+  // Default privacy: ephemeral first, then DM. Only use public when explicitly allowed.
   if (!isImChannel) {
     methods.push({
       name: 'ephemeral',
@@ -1178,14 +1176,21 @@ async function sendMessageRobust(client, channelId, userId, text, blocks = undef
     fn: () => client.chat.postMessage({ channel: userId, text, blocks })
   });
 
+  if (allowPublic) {
+    methods.unshift({
+      name: 'public_message',
+      fn: () => client.chat.postMessage({ channel: channelId, text, blocks })
+    });
+  }
+
   for (const method of methods) {
     try {
       let result;
       try {
         result = await method.fn();
       } catch (firstError) {
-        // If public_message failed due to not being in the channel, try to join and retry once
-        if (method.name === 'public_message' && ['not_in_channel','channel_not_found'].includes(firstError.data?.error)) {
+        // Only attempt join+retry when we are explicitly allowed to post publicly
+        if (allowPublic && method.name === 'public_message' && ['not_in_channel','channel_not_found'].includes(firstError.data?.error)) {
           await ensureBotInChannel(client, channelId);
           result = await method.fn();
         } else {
@@ -1245,7 +1250,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
     const text = `🎨 *Processing ${plannedSourcesCount} image${plannedSourcesCount === 1 ? '' : 's'}...*\n*Prompt:* "${promptValue}"\n\nYour results will appear here shortly!`;
 
     console.log('📤 Attempting to send processing message...');
-    processingMsg = await sendMessageRobust(client, channelId, userId, text);
+    processingMsg = await sendMessageRobust(client, channelId, userId, text, undefined, { allowPublic: false });
     processingTs = processingMsg?.ts || processingMsg?.message_ts || null;
     processingChannel = processingMsg?.channel || channelId;
 
@@ -1420,11 +1425,11 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
           } catch (updateError) {
             try { const { logSlackError } = require('../utils/logging'); logSlackError('chat.update(results)', updateError); } catch(_) { console.log('❌ Failed to update processing message:', updateError.message); }
             // Fallback: send new message
-            await sendMessageRobust(client, channelId, userId, successText, resultBlocks);
+            await sendMessageRobust(client, channelId, userId, successText, resultBlocks, { allowPublic: false });
           }
         } else {
           console.log('⚠️ No processing message to update, sending new results message');
-          await sendMessageRobust(client, channelId, userId, successText, resultBlocks);
+          await sendMessageRobust(client, channelId, userId, successText, resultBlocks, { allowPublic: false });
         }
 
       } catch (error) {
@@ -1454,10 +1459,10 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
             });
           } catch (updateError) {
             try { const { logSlackError } = require('../utils/logging'); logSlackError('chat.update(error)', updateError); } catch(_) { console.log('❌ Failed to update processing message with error:', updateError.message); }
-            await sendMessageRobust(client, channelId, userId, errorMessage, errorBlocks);
+            await sendMessageRobust(client, channelId, userId, errorMessage, errorBlocks, { allowPublic: false });
           }
         } else {
-          await sendMessageRobust(client, channelId, userId, errorMessage, errorBlocks);
+          await sendMessageRobust(client, channelId, userId, errorMessage, errorBlocks, { allowPublic: false });
         }
     }
 
@@ -1474,7 +1479,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
 
     // Send error message using robust delivery
     try {
-      await sendMessageRobust(client, channelId, userId, errorMessage);
+      await sendMessageRobust(client, channelId, userId, errorMessage, undefined, { allowPublic: false });
     } catch (messageError) {
       console.error('All error message delivery methods failed:', messageError);
     }
