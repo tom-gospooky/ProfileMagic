@@ -355,7 +355,8 @@ async function handleRetryMessage({ ack, body, client }) {
       body.team.id,
       body.user.id,
       body.channel.id,
-      prompt
+      prompt,
+      body.response_url || null
     );
   } catch (error) {
     console.error('Error re-opening modal:', error.message);

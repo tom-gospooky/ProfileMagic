@@ -71,18 +71,37 @@ const handleApiResponse = async (response, context = 'edit', client, userId, cha
       };
       
     } catch (uploadError) {
-      console.error('Slack upload failed, using local fallback');
+      console.error('Slack upload failed to target channel, trying DM upload');
       // Log a sanitized error payload even in production
-      logSlackError('files.uploadV2', uploadError);
-      
-      // Fallback to local file
-      const fileUrl = await fileServer.saveTemporaryFile(imageBuffer, filename);
-      if (!isProduction) console.log(`Saved edited image locally: ${fileUrl}`);
-      return {
-        fileId: null,
-        localUrl: fileUrl,
-        slackFile: null
-      };
+      logSlackError('files.uploadV2(channel)', uploadError);
+
+      // Second attempt: upload to user's DM for native download support
+      try {
+        const dmUpload = await client.files.uploadV2({
+          channel_id: userId,
+          file: imageBuffer,
+          filename: filename,
+          title: `AI Edited Profile Photo - ${context}`,
+          alt_txt: `AI edited profile photo using prompt: ${context}`
+        });
+        if (!isProduction) console.log(`Uploaded image to user's DM: ${dmUpload.file.id}`);
+        return {
+          fileId: dmUpload.file.id,
+          localUrl: await fileServer.saveTemporaryFile(imageBuffer, filename),
+          slackFile: dmUpload.file
+        };
+      } catch (dmError) {
+        console.error('DM upload failed, using local fallback');
+        logSlackError('files.uploadV2(dm)', dmError);
+        // Fallback to local file
+        const fileUrl = await fileServer.saveTemporaryFile(imageBuffer, filename);
+        if (!isProduction) console.log(`Saved edited image locally: ${fileUrl}`);
+        return {
+          fileId: null,
+          localUrl: fileUrl,
+          slackFile: null
+        };
+      }
     }
   }
 
