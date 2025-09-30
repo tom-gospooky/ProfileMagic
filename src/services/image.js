@@ -62,6 +62,56 @@ async function externalUploadAsSlackFile(client, imageBuffer, filename, userId) 
   }
 }
 
+// Helper to call Gemini with retries and model fallbacks
+async function callGeminiWithRetry(ai, contentParts, isProduction) {
+  const defaultModels = [
+    process.env.GEMINI_MODEL || 'gemini-2.5-flash-image-preview',
+    'gemini-2.0-flash',
+    'gemini-1.5-flash',
+    'gemini-1.5-pro'
+  ];
+  const models = (process.env.GEMINI_MODEL_FALLBACKS || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+  const modelList = [...new Set([...defaultModels, ...models])];
+
+  for (const modelName of modelList) {
+    const maxAttempts = 2;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        if (!isProduction) console.log(`Gemini call: model=${modelName} attempt=${attempt}`);
+        // Pattern 1
+        try {
+          const model = ai.getGenerativeModel({ model: modelName });
+          return await model.generateContent(contentParts);
+        } catch (e1) {
+          if (!isProduction) console.log('getGenerativeModel failed:', e1.message);
+          try {
+            // Pattern 2
+            return await ai.generateContent({ model: modelName, contents: [{ parts: contentParts }] });
+          } catch (e2) {
+            if (!isProduction) console.log('direct generateContent failed:', e2.message);
+            // Pattern 3
+            return await ai.models.generateContent({ model: modelName, contents: [{ parts: contentParts }] });
+          }
+        }
+      } catch (err) {
+        const status = err?.status || err?.code || err?.response?.status;
+        const internal = /INTERNAL|UNAVAILABLE|DEADLINE|500/.test(String(status)) || /INTERNAL/.test(err?.message || '');
+        if (!isProduction) console.warn(`Gemini error on model=${modelName} attempt=${attempt}:`, err?.message || err);
+        if (attempt < maxAttempts && internal) {
+          const backoff = 400 * attempt;
+          await new Promise(r => setTimeout(r, backoff));
+          continue; // retry same model
+        }
+        // Move to next model
+      }
+    }
+  }
+  throw new Error('GENERATION_FAILED');
+}
+
 // Helper function to convert Buffer to the format Gemini expects
 const bufferToPart = (buffer, mimeType = 'image/jpeg') => {
   const base64Data = buffer.toString('base64');
@@ -213,8 +263,11 @@ async function editImage(imageUrl, prompt, client, userId, referenceImageUrl = n
     
     // Download the original image
     const original = await slackService.downloadImageWithMime(imageUrl);
-    const imageBuffer = original.buffer;
-    const originalMime = original.mimeType || 'image/jpeg';
+    // Compress/normalize before sending to Gemini to reduce 500s from oversized payloads
+    const maxBytesGemini = Number(process.env.GEMINI_MAX_BYTES || 4 * 1024 * 1024);
+    const pre = await compressIfLarge(original.buffer, original.mimeType || 'image/jpeg', maxBytesGemini);
+    const imageBuffer = pre.buffer;
+    const originalMime = pre.mimeType || 'image/jpeg';
     if (!isProduction) console.log(`Downloaded original image, size: ${imageBuffer.length} bytes, type: ${originalMime}`);
     
     // Convert to the format Gemini expects
@@ -225,8 +278,9 @@ async function editImage(imageUrl, prompt, client, userId, referenceImageUrl = n
     if (referenceImageUrl) {
       try {
         const ref = await slackService.downloadImageWithMime(referenceImageUrl);
-        const referenceBuffer = ref.buffer;
-        const referenceMime = ref.mimeType || 'image/jpeg';
+        const refPre = await compressIfLarge(ref.buffer, ref.mimeType || 'image/jpeg', maxBytesGemini);
+        const referenceBuffer = refPre.buffer;
+        const referenceMime = refPre.mimeType || 'image/jpeg';
         referenceImagePart = bufferToPart(referenceBuffer, referenceMime);
         if (!isProduction) console.log(`Downloaded reference image, size: ${referenceBuffer.length} bytes, type: ${referenceMime}`);
       } catch (refError) {
@@ -261,30 +315,8 @@ async function editImage(imageUrl, prompt, client, userId, referenceImageUrl = n
     }
     contentParts.push(textPart);
     
-    // Try the most common API patterns for @google/genai
-    let response;
-    try {
-      // Pattern 1: Direct model access
-      const model = ai.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash-image-preview' });
-      if (!isProduction) console.log('Using getGenerativeModel pattern');
-      response = await model.generateContent(contentParts);
-    } catch (error1) {
-      if (!isProduction) console.log('getGenerativeModel failed, trying direct generateContent:', error1.message);
-      try {
-        // Pattern 2: Direct generateContent
-        response = await ai.generateContent({
-          model: process.env.GEMINI_MODEL || 'gemini-2.5-flash-image-preview',
-          contents: [{ parts: contentParts }]
-        });
-      } catch (error2) {
-        if (!isProduction) console.log('Direct generateContent failed, trying models property:', error2.message);
-        // Pattern 3: Models property
-        response = await ai.models.generateContent({
-          model: process.env.GEMINI_MODEL || 'gemini-2.5-flash-image-preview',
-          contents: [{ parts: contentParts }]
-        });
-      }
-    }
+    // Call Gemini with retries + fallbacks
+    const response = await callGeminiWithRetry(ai, contentParts, isProduction);
     
     if (!isProduction) console.log('Received response from Gemini API');
     return await handleApiResponse(response, 'edit', client, userId, channelId);
@@ -319,12 +351,14 @@ async function editImageGroup(imageUrls, prompt, client, userId, channelId = nul
 
     const ai = new GoogleGenAI(process.env.GEMINI_API_KEY);
 
-    // Prepare content parts from all images
+    // Prepare content parts from all images (compress where needed)
     const contentParts = [];
     for (const url of imageUrls) {
       try {
         const { buffer, mimeType } = await slackService.downloadImageWithMime(url);
-        contentParts.push(bufferToPart(buffer, mimeType || 'image/jpeg'));
+        const maxBytesGemini = Number(process.env.GEMINI_MAX_BYTES || 4 * 1024 * 1024);
+        const pre = await compressIfLarge(buffer, mimeType || 'image/jpeg', maxBytesGemini);
+        contentParts.push(bufferToPart(pre.buffer, pre.mimeType || 'image/jpeg'));
       } catch (e) {
         console.error('Failed to download image for group edit:', e.message);
         throw new Error('Failed to download one of the images');
@@ -333,28 +367,7 @@ async function editImageGroup(imageUrls, prompt, client, userId, channelId = nul
 
     contentParts.push({ text: `Edit these images: ${prompt}. Keep the edit natural and realistic.` });
 
-    // Call Gemini with one request expecting a single image response
-    let response;
-    try {
-      const model = ai.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-2.5-flash-image-preview' });
-      if (!isProduction) console.log('Using getGenerativeModel for group edit');
-      response = await model.generateContent(contentParts);
-    } catch (error1) {
-      if (!isProduction) console.log('Group: getGenerativeModel failed, trying direct generateContent:', error1.message);
-      try {
-        response = await ai.generateContent({
-          model: process.env.GEMINI_MODEL || 'gemini-2.5-flash-image-preview',
-          contents: [{ parts: contentParts }]
-        });
-      } catch (error2) {
-        if (!isProduction) console.log('Group: Direct generateContent failed, trying models property:', error2.message);
-        response = await ai.models.generateContent({
-          model: process.env.GEMINI_MODEL || 'gemini-2.5-flash-image-preview',
-          contents: [{ parts: contentParts }]
-        });
-      }
-    }
-
+    const response = await callGeminiWithRetry(ai, contentParts, isProduction);
     if (!isProduction) console.log('Received group response from Gemini API');
     return await handleApiResponse(response, 'edit', client, userId, channelId);
 
