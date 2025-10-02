@@ -67,7 +67,14 @@ async function externalUploadAsSlackFile(client, imageBuffer, filename, userId) 
     // Complete without sharing to any conversation (no message created)
     const complete = await client.files.completeUploadExternal({ files: [{ id: first.file_id, title: filename }] });
     const created = complete.files?.[0] || { id: first.file_id };
-    return { ok: true, file: created };
+    // Fetch full info to obtain stable permalinks
+    try {
+      const info = await client.files.info({ file: created.id });
+      const file = info?.file ? { ...created, ...info.file } : created;
+      return { ok: true, file };
+    } catch (_) {
+      return { ok: true, file: created };
+    }
   } catch (err) {
     const status = err?.response?.status || err?.status;
     if (status === 413) {
@@ -80,7 +87,13 @@ async function externalUploadAsSlackFile(client, imageBuffer, filename, userId) 
         });
         const complete = await client.files.completeUploadExternal({ files: [{ id: retry.file_id, title: filename }] });
         const created = complete.files?.[0] || { id: retry.file_id };
-        return { ok: true, file: created };
+        try {
+          const info = await client.files.info({ file: created.id });
+          const file = info?.file ? { ...created, ...info.file } : created;
+          return { ok: true, file };
+        } catch (_) {
+          return { ok: true, file: created };
+        }
       } catch (err2) {
         logSlackError('externalUploadRetry', err2);
         return { ok: false, error: err2 };
@@ -223,10 +236,16 @@ const handleApiResponse = async (response, context = 'edit', client, userId, cha
           throw new Error('UPLOAD_RETURNED_NO_FILE_ID');
         }
         if (!isProduction) console.log(`Uploaded image to user's DM: ${uploaded.id}`);
+        // Enrich with file info for stable permalink
+        let enriched = uploaded;
+        try {
+          const info = await client.files.info({ file: uploaded.id });
+          if (info?.file) enriched = { ...uploaded, ...info.file };
+        } catch (_) {}
         return {
           fileId: uploaded.id,
           localUrl: await fileServer.saveTemporaryFile(imageBuffer, filename),
-          slackFile: uploaded,
+          slackFile: enriched,
           origin: 'dm'
         };
     } catch (dmError) {
@@ -236,10 +255,16 @@ const handleApiResponse = async (response, context = 'edit', client, userId, cha
       const ext = await externalUploadAsSlackFile(client, imageBuffer, filename, userId);
       if (ext.ok) {
         if (!isProduction) console.log(`External upload completed as Slack file: ${ext.file.id}`);
+        // Try to enrich with file info
+        let enriched = ext.file;
+        try {
+          const info = await client.files.info({ file: ext.file.id });
+          if (info?.file) enriched = { ...ext.file, ...info.file };
+        } catch (_) {}
         return {
           fileId: ext.file.id,
           localUrl: await fileServer.saveTemporaryFile(imageBuffer, filename),
-          slackFile: ext.file,
+          slackFile: enriched,
           origin: 'external'
         };
       }

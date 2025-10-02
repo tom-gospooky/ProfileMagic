@@ -130,28 +130,11 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
         alt_text: 'Original profile photo'
       });
 
-      // Add edited image
-      if (editedImageResult.fileId && editedImageResult.origin !== 'external') {
-        // Use Slack file if upload succeeded
+      // Add edited image (use hosted URL for reliability)
+      if (editedImageResult.localUrl) {
         responseBlocks.push({
           type: 'image',
-          title: {
-            type: 'plain_text',
-            text: '✨ AI-Edited Image'
-          },
-          slack_file: {
-            id: editedImageResult.fileId
-          },
-          alt_text: 'AI-edited profile photo'
-        });
-      } else if (editedImageResult.localUrl) {
-        // Fallback to public URL if Slack upload failed
-        responseBlocks.push({
-          type: 'image',
-          title: {
-            type: 'plain_text',
-            text: '✨ AI-Edited Image'
-          },
+          title: { type: 'plain_text', text: '✨ AI-Edited Image' },
           image_url: editedImageResult.localUrl,
           alt_text: 'AI-edited profile photo'
         });
@@ -174,8 +157,11 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
       });
       actions.push({ type: 'button', text: { type: 'plain_text', text: '🔄 Retry' }, action_id: 'retry_edit_message', value: JSON.stringify({ prompt }) });
       // Optional helper link if available
-      if (editedImageResult.slackFile?.permalink) {
-        actions.push({ type: 'button', text: { type: 'plain_text', text: '🔎 Open in Slack' }, url: editedImageResult.slackFile.permalink });
+      {
+        const openUrl = editedImageResult.slackFile?.permalink || editedImageResult.slackFile?.permalink_public;
+        if (openUrl) {
+          actions.push({ type: 'button', text: { type: 'plain_text', text: '🔎 Open in Slack' }, url: openUrl });
+        }
       }
       responseBlocks.push({ type: 'actions', elements: actions });
 

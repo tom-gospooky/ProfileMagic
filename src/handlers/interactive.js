@@ -607,19 +607,7 @@ async function handleReferenceImageSubmission({ ack, body, view, client }) {
     });
 
     // Add edited image with reference
-    if (editedImageResult.fileId) {
-      successBlocks.push({
-        type: 'image',
-        title: {
-          type: 'plain_text',
-          text: '✨ AI-Edited with Reference'
-        },
-        slack_file: {
-          id: editedImageResult.fileId
-        },
-        alt_text: 'AI-edited profile photo with reference'
-      });
-    } else if (editedImageResult.localUrl) {
+    if (editedImageResult.localUrl) {
       successBlocks.push({
         type: 'image',
         title: {
@@ -649,8 +637,11 @@ async function handleReferenceImageSubmission({ ack, body, view, client }) {
         value: JSON.stringify({ editedImage: editedImageResult.localUrl, prompt: originalPrompt })
       });
     }
-    if (editedImageResult.slackFile?.permalink) {
-      actionElementsRef.push({ type: 'button', text: { type: 'plain_text', text: '🔎 Open in Slack' }, url: editedImageResult.slackFile.permalink });
+    {
+      const openUrl = editedImageResult.slackFile?.permalink || editedImageResult.slackFile?.permalink_public;
+      if (openUrl) {
+        actionElementsRef.push({ type: 'button', text: { type: 'plain_text', text: '🔎 Open in Slack' }, url: openUrl });
+      }
     }
     successBlocks.push({ type: 'actions', elements: actionElementsRef });
 
@@ -1038,19 +1029,7 @@ async function handleMessageShortcut({ ack, shortcut, body, client }) {
       ];
 
       // Add the edited image
-      if (editedResult.fileId) {
-        successBlocks.push({
-          type: 'image',
-          title: {
-            type: 'plain_text',
-            text: '✨ AI-Edited Image'
-          },
-          slack_file: {
-            id: editedResult.fileId
-          },
-          alt_text: 'AI-edited image from message shortcut'
-        });
-      } else if (editedResult.localUrl) {
+      if (editedResult.localUrl) {
         successBlocks.push({
           type: 'image',
           title: {
@@ -1413,27 +1392,12 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
           }
         ];
 
-        // Add successful results
+        // Add successful results (use public URL for reliability)
         for (const result of successful) {
-          if (result.result.fileId && result.result.origin !== 'external') {
+          if (result.result.localUrl) {
             resultBlocks.push({
               type: 'image',
-              title: {
-                type: 'plain_text',
-                text: `✨ ${result.originalFile.name}`
-              },
-              slack_file: {
-                id: result.result.fileId
-              },
-              alt_text: `AI-transformed ${result.originalFile.name}`
-            });
-          } else if (result.result.localUrl) {
-            resultBlocks.push({
-              type: 'image',
-              title: {
-                type: 'plain_text',
-                text: `✨ ${result.originalFile.name}`
-              },
+              title: { type: 'plain_text', text: `✨ ${result.originalFile.name}` },
               image_url: result.result.localUrl,
               alt_text: `AI-transformed ${result.originalFile.name}`
             });
@@ -1479,12 +1443,15 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
           }
 
           // Prefer native Slack viewer: if we have a Slack file, offer an "Open in Slack" button
-          if (successful.length === 1 && successful[0].result?.slackFile?.permalink) {
-            actionElements.push({
-              type: 'button',
-              text: { type: 'plain_text', text: '🔎 Open in Slack' },
-              url: successful[0].result.slackFile.permalink
-            });
+          {
+            const openUrl = successful[0]?.result?.slackFile?.permalink || successful[0]?.result?.slackFile?.permalink_public;
+            if (successful.length === 1 && openUrl) {
+              actionElements.push({
+                type: 'button',
+                text: { type: 'plain_text', text: '🔎 Open in Slack' },
+                url: openUrl
+              });
+            }
           }
 
           // Share… button: opens a caption modal and lets user post a message
@@ -1740,14 +1707,7 @@ async function handleProfileOnlyModal({ ack, body, view, client }) {
     ];
 
     // Add edited image
-    if (result.fileId) {
-      resultBlocks.push({
-        type: 'image',
-        title: { type: 'plain_text', text: '✨ AI-Edited' },
-        slack_file: { id: result.fileId },
-        alt_text: 'AI-edited profile photo'
-      });
-    } else if (result.localUrl) {
+    if (result.localUrl) {
       resultBlocks.push({
         type: 'image',
         title: { type: 'plain_text', text: '✨ AI-Edited' },
@@ -1975,14 +1935,8 @@ async function handleSendToChannel({ ack, body, client }) {
     ];
 
     for (const result of results) {
-      if (result.fileId) {
-        messageBlocks.push({
-          type: 'image',
-          title: { type: 'plain_text', text: `✨ ${result.filename}` },
-          slack_file: { id: result.fileId },
-          alt_text: `AI-transformed ${result.filename}`
-        });
-      } else if (result.localUrl) {
+      // Use our hosted image URL for reliable rendering in any channel
+      if (result.localUrl) {
         messageBlocks.push({
           type: 'image',
           title: { type: 'plain_text', text: `✨ ${result.filename}` },
@@ -2007,14 +1961,7 @@ async function handleSendToChannel({ ack, body, client }) {
         text: { type: 'mrkdwn', text: '✅ Your image has been posted to this channel. Want to add your own caption and share again?' }
       }
     ];
-    if (results[0]?.fileId) {
-      helperBlocks.push({
-        type: 'image',
-        title: { type: 'plain_text', text: 'Preview' },
-        slack_file: { id: results[0].fileId },
-        alt_text: 'Preview'
-      });
-    } else if (results[0]?.localUrl) {
+    if (results[0]?.localUrl) {
       helperBlocks.push({
         type: 'image',
         title: { type: 'plain_text', text: 'Preview' },
@@ -2131,28 +2078,8 @@ async function handleShareToChannelSubmission({ ack, body, client }) {
     }
 
     for (const result of results) {
-      // If we have a Slack file, make sure it is shared to the selected channel for inline rendering
-      if (result.fileId) {
-        try {
-          const userToken = userTokens.getUserToken(userId, teamId);
-          if (userToken) {
-            const userClient = new WebClient(userToken);
-            await userClient.files.share({ file: result.fileId, channels: selectedChannel });
-          } else {
-            await client.files.share({ file: result.fileId, channels: selectedChannel });
-          }
-        } catch (shareErr) {
-          console.log('files.share failed or not needed:', shareErr.data?.error || shareErr.message);
-        }
-      }
-      if (result.fileId) {
-        messageBlocks.push({
-          type: 'image',
-          title: { type: 'plain_text', text: `✨ ${result.filename}` },
-          slack_file: { id: result.fileId },
-          alt_text: `AI-transformed ${result.filename}`
-        });
-      } else if (result.localUrl) {
+      // Always use the public URL for blocks; avoid slack_file permission issues
+      if (result.localUrl) {
         messageBlocks.push({
           type: 'image',
           title: { type: 'plain_text', text: `✨ ${result.filename}` },

@@ -312,20 +312,8 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
       }
     ];
 
-    // Add the edited image
-    if (editedImageResult.fileId && editedImageResult.origin !== 'external') {
-      successBlocks.push({
-        type: 'image',
-        title: {
-          type: 'plain_text',
-          text: '✨ Extended Edit Result'
-        },
-        slack_file: {
-          id: editedImageResult.fileId
-        },
-        alt_text: 'AI-edited image from extended command'
-      });
-    } else if (editedImageResult.localUrl) {
+    // Add the edited image (use hosted URL for reliability)
+    if (editedImageResult.localUrl) {
       successBlocks.push({
         type: 'image',
         title: {
@@ -348,8 +336,11 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
       });
     }
     extActions.push({ type: 'button', text: { type: 'plain_text', text: '🔄 Try Different Edit' }, action_id: 'retry_edit_message' });
-    if (editedImageResult.slackFile?.permalink) {
-      extActions.push({ type: 'button', text: { type: 'plain_text', text: '🔎 Open in Slack' }, url: editedImageResult.slackFile.permalink });
+    {
+      const openUrl = editedImageResult.slackFile?.permalink || editedImageResult.slackFile?.permalink_public;
+      if (openUrl) {
+        extActions.push({ type: 'button', text: { type: 'plain_text', text: '🔎 Open in Slack' }, url: openUrl });
+      }
     }
     successBlocks.push({ type: 'actions', elements: extActions });
 
