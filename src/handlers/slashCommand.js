@@ -289,7 +289,7 @@ async function showFileSelectionModal(client, triggerId, teamId, userId, channel
           options: [{
             text: {
               type: 'plain_text',
-              text: 'Use my current profile picture as an input image',
+              text: 'Use my current profile photo as style reference',
               emoji: true
             },
             value: 'include_profile_reference'
@@ -297,7 +297,7 @@ async function showFileSelectionModal(client, triggerId, teamId, userId, channel
         },
         label: {
           type: 'plain_text',
-          text: 'Profile Picture:'
+          text: 'Optional reference:'
         },
         optional: true
       });
@@ -449,7 +449,7 @@ async function showProfileOnlyModal(client, triggerId, teamId, userId, channelId
       teamId,
       userId,
       channelId,
-      profilePhoto: false
+      profilePhoto: true
     })
   };
 

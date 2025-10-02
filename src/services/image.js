@@ -4,23 +4,45 @@ const fileServer = require('./fileServer');
 const axios = require('axios');
 const { logSlackError } = require('../utils/logging');
 
-async function compressIfLarge(buffer, mimeType = 'image/jpeg', maxBytes = 4 * 1024 * 1024) {
+async function compressIfLarge(buffer, mimeType = 'image/jpeg', maxBytes = 4 * 1024 * 1024, options = {}) {
   try {
+    // If already small enough and JPEG, keep as-is
     if (buffer.length <= maxBytes && mimeType === 'image/jpeg') return { buffer, mimeType };
+
     const Jimp = require('jimp');
-    const image = await Jimp.read(buffer);
-    // Resize if very large (long side > 2048)
-    const MAX_SIDE = 2048;
-    if (image.getWidth() > MAX_SIDE || image.getHeight() > MAX_SIDE) {
-      image.scaleToFit(MAX_SIDE, MAX_SIDE);
+    let image = await Jimp.read(buffer);
+
+    // Initial constraints
+    let maxSide = options.maxSide || 2048;
+    let quality = options.initialQuality || 85;
+    const minQuality = options.minQuality || 40;
+    const minSide = options.minSide || 800;
+    let attempts = 0;
+    const maxAttempts = options.maxAttempts || 8;
+
+    // Apply an initial downscale if needed
+    if (image.getWidth() > maxSide || image.getHeight() > maxSide) {
+      image = image.scaleToFit(maxSide, maxSide);
     }
-    // Encode as JPEG with quality to target size
-    let quality = 85;
+
     let out = await image.quality(quality).getBufferAsync(Jimp.MIME_JPEG);
-    while (out.length > maxBytes && quality > 50) {
-      quality -= 10;
+
+    while (out.length > maxBytes && attempts < maxAttempts) {
+      attempts += 1;
+      // Decrease quality first, then dimensions if needed
+      if (quality > minQuality) {
+        quality = Math.max(minQuality, quality - 10);
+      } else if (image.getWidth() > minSide || image.getHeight() > minSide) {
+        maxSide = Math.max(minSide, Math.floor(maxSide * 0.8));
+        // re-read from original buffer to avoid multiple re-encodes stacking artifacts
+        image = await Jimp.read(buffer);
+        image = image.scaleToFit(maxSide, maxSide);
+      } else {
+        break; // can't reduce further
+      }
       out = await image.quality(quality).getBufferAsync(Jimp.MIME_JPEG);
     }
+
     return { buffer: out, mimeType: 'image/jpeg' };
   } catch (e) {
     console.warn('Compression skipped due to error:', e.message);
@@ -29,11 +51,18 @@ async function compressIfLarge(buffer, mimeType = 'image/jpeg', maxBytes = 4 * 1
 }
 
 async function externalUploadAsSlackFile(client, imageBuffer, filename, userId) {
-  // Try external upload with Content-Length and compression retry on 413
+  // Try external upload with proactive compression for large buffers and stronger 413 handling
   try {
-    const first = await client.files.getUploadURLExternal({ filename, length: imageBuffer.length });
-    await axios.put(first.upload_url, imageBuffer, {
-      headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': imageBuffer.length }
+    let toUpload = imageBuffer;
+    // If very large upfront (>7MB), proactively compress to ~3MB with modest downscaling
+    if (toUpload.length > 7 * 1024 * 1024) {
+      const c = await compressIfLarge(toUpload, 'image/jpeg', 3 * 1024 * 1024, { maxSide: 1600, minSide: 900 });
+      toUpload = c.buffer;
+    }
+
+    const first = await client.files.getUploadURLExternal({ filename, length: toUpload.length });
+    await axios.put(first.upload_url, toUpload, {
+      headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': toUpload.length }
     });
     // Complete without sharing to any conversation (no message created)
     const complete = await client.files.completeUploadExternal({ files: [{ id: first.file_id, title: filename }] });
@@ -42,9 +71,9 @@ async function externalUploadAsSlackFile(client, imageBuffer, filename, userId) 
   } catch (err) {
     const status = err?.response?.status || err?.status;
     if (status === 413) {
-      // Compress and retry once
+      // Compress and retry with stricter target (~2MB) and smaller max side
       try {
-        const { buffer: smaller } = await compressIfLarge(imageBuffer);
+        const { buffer: smaller } = await compressIfLarge(imageBuffer, 'image/jpeg', 2 * 1024 * 1024, { maxSide: 1280, minSide: 720 });
         const retry = await client.files.getUploadURLExternal({ filename, length: smaller.length });
         await axios.put(retry.upload_url, smaller, {
           headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': smaller.length }
@@ -189,11 +218,15 @@ const handleApiResponse = async (response, context = 'edit', client, userId, cha
           title: `AI Edited Profile Photo - ${context}`,
           alt_txt: `AI edited profile photo using prompt: ${context}`
         });
-        if (!isProduction) console.log(`Uploaded image to user's DM: ${dmUpload.file.id}`);
+        const uploaded = dmUpload?.files?.[0] || dmUpload?.file || null;
+        if (!uploaded?.id) {
+          throw new Error('UPLOAD_RETURNED_NO_FILE_ID');
+        }
+        if (!isProduction) console.log(`Uploaded image to user's DM: ${uploaded.id}`);
         return {
-          fileId: dmUpload.file.id,
+          fileId: uploaded.id,
           localUrl: await fileServer.saveTemporaryFile(imageBuffer, filename),
-          slackFile: dmUpload.file,
+          slackFile: uploaded,
           origin: 'dm'
         };
     } catch (dmError) {

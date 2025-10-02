@@ -71,6 +71,11 @@ app.shortcut('banana_global', interactiveHandler.handleGlobalShortcut);
 
 // Error handler
 app.error((error) => {
+  const msg = String(error?.message || error || '');
+  if (/Unhandled event 'server explicit disconnect'/.test(msg)) {
+    // Transient Socket Mode disconnect; log as warn to reduce error noise
+    return console.warn('SocketMode transient disconnect:', msg);
+  }
   console.error('App error:', error);
 });
 

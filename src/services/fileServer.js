@@ -166,11 +166,18 @@ app.get('/files/:filename', async (req, res, next) => {
   try {
     if (req.query && req.query.dl === '1') {
       const filePath = path.join(TEMP_DIR, req.params.filename);
-      return res.download(filePath, req.params.filename);
+      try {
+        // Ensure file exists before attempting download to avoid ENOENT errors bubbling to error handler
+        await fs.access(filePath);
+        return res.download(filePath, req.params.filename);
+      } catch (e) {
+        // File missing: return 404 without emitting an error stack
+        return res.status(404).json({ error: 'File not found', filename: req.params.filename });
+      }
     }
     return next();
   } catch (e) {
-    console.error('Download route error:', e.message);
+    console.warn('Download route error:', e.message);
     return res.status(404).json({ error: 'File not found' });
   }
 });
@@ -189,6 +196,11 @@ app.use((req, res) => res.status(404).json({ error: 'Not found', path: req.path 
 
 // Simple error handler so we don't crash the process
 app.use((err, req, res, next) => {
+  // Downgrade ENOENT to 404 and log as warning to reduce noise
+  if (err && (err.code === 'ENOENT' || /ENOENT/.test(String(err)))) {
+    console.warn('File not found (ENOENT):', req.path);
+    return res.status(404).json({ error: 'File not found' });
+  }
   console.error('Server error:', err);
   res.status(500).json({ error: 'Internal error' });
 });
