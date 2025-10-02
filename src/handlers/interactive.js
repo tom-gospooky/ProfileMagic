@@ -8,6 +8,42 @@ const { getOAuthUrl } = require('../services/fileServer');
 const { showExtendedModal } = require('./extendedCommand');
 // const fileCache = require('../utils/fileCache'); // Currently unused
 
+async function handleOpenAdvancedModal({ ack, body, client }) {
+  await ack();
+
+  try {
+    let prompt = '';
+    try {
+      const raw = body.actions?.[0]?.value;
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        prompt = parsed.prompt || '';
+      }
+    } catch (_) {}
+
+    const { showFileSelectionModal } = require('./slashCommand');
+    await showFileSelectionModal(
+      client,
+      body.trigger_id,
+      body.team.id,
+      body.user.id,
+      body.channel?.id || body.container?.channel_id || body.channel_id,
+      prompt,
+      body.response_url || null
+    );
+  } catch (error) {
+    console.error('Error opening advanced modal:', error.message);
+    // Best-effort ephemeral guidance
+    try {
+      await client.chat.postEphemeral({
+        channel: body.channel?.id || body.container?.channel_id || body.channel_id || body.user.id,
+        user: body.user.id,
+        text: '❌ Could not open the advanced modal. Please run `/boo` again.'
+      });
+    } catch (_) {}
+  }
+}
+
 async function handlePresetSelection({ ack, body, view, client }) {
   await ack();
 
@@ -2171,6 +2207,7 @@ module.exports = {
   handleApproveExtended,
   handleRetryExtended,
   handleOpenExtendedModal,
+  handleOpenAdvancedModal,
   handleMessageShortcut,
   handleFileSelectionModal,
   handleProfileOnlyModal,

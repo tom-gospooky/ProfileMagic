@@ -62,6 +62,7 @@ app.action('show_upload_guide', interactiveHandler.handleUploadGuide);
 app.action('use_profile_reference', interactiveHandler.handleProfileReferenceToggle);
 app.action('send_to_channel', interactiveHandler.handleSendToChannel);
 app.action('open_share_modal', interactiveHandler.handleOpenShareModal);
+app.action('open_advanced_modal', interactiveHandler.handleOpenAdvancedModal);
 
 // Message shortcut handlers
 app.shortcut('banana', interactiveHandler.handleMessageShortcut);

@@ -63,8 +63,14 @@ async function handleSlashCommand({ command, ack, respond, client, body }) {
       return;
     }
 
-    // User is authorized, proceed with file selection modal
-    await showFileSelectionModal(client, body.trigger_id, teamId, userId, channelId, prompt, responseUrl, threadTs);
+    // User is authorized
+    if (prompt && prompt.length > 0) {
+      // Direct automatic generation based on current profile + text
+      await processDirectPrompt(client, userId, teamId, prompt, body.trigger_id, respond);
+    } else {
+      // No text: open the advanced modal (file selection)
+      await showFileSelectionModal(client, body.trigger_id, teamId, userId, channelId, '', responseUrl, threadTs);
+    }
   } catch (error) {
     console.error('Error in slash command:', error);
     await respond({
@@ -151,9 +157,23 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
         });
       }
 
-      // Add action buttons
+      // Add action buttons: Update Profile, Advanced Options, Retry
       const actions = [];
-      actions.push({ type: 'button', text: { type: 'plain_text', text: '🔄 Retry' }, action_id: 'retry_edit_message' });
+      actions.push({
+        type: 'button',
+        text: { type: 'plain_text', text: '✅ Update Profile Picture' },
+        style: 'primary',
+        action_id: 'approve_edit_message',
+        value: JSON.stringify({ editedImage: editedImageResult.localUrl, prompt })
+      });
+      actions.push({
+        type: 'button',
+        text: { type: 'plain_text', text: '⚙️ Advanced Options' },
+        action_id: 'open_advanced_modal',
+        value: JSON.stringify({ prompt })
+      });
+      actions.push({ type: 'button', text: { type: 'plain_text', text: '🔄 Retry' }, action_id: 'retry_edit_message', value: JSON.stringify({ prompt }) });
+      // Optional helper link if available
       if (editedImageResult.slackFile?.permalink) {
         actions.push({ type: 'button', text: { type: 'plain_text', text: '🔎 Open in Slack' }, url: editedImageResult.slackFile.permalink });
       }
