@@ -370,8 +370,7 @@ async function handleRetrySame({ ack, body, client }) {
       useProfileRef,
       null,
       body.response_url || null, // Use response_url for DM permission
-      threadTs,
-      true // replaceOriginal=true to update processing message
+      threadTs
     );
   } catch (error) {
     console.error('Retry same-settings error:', error);
@@ -425,8 +424,7 @@ async function handleRetryDirect({ ack, body, client }) {
       ['include_profile_reference'],
       null,
       body.response_url || null, // Use response_url for DM permission
-      threadTs,
-      true // replaceOriginal=true to update processing message
+      threadTs
     );
   } catch (error) {
     console.error('Retry direct error:', error);
@@ -1348,7 +1346,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
         const response = await axios.post(responseUrl, {
           response_type: 'ephemeral',
           text,
-          replace_original: !!replaceOriginal,
+          replace_original: false, // Never replace on processing message (keeps prior results visible)
           ...(threadTs && !isDM ? { thread_ts: threadTs } : {})
         });
 
@@ -1513,7 +1511,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
               response_type: 'ephemeral',
               text: successText,
               blocks: resultBlocks,
-              replace_original: !!replaceOriginal,
+              replace_original: true, // Always replace processing message with results
               ...(threadTs && !isDM ? { thread_ts: threadTs } : {})
             });
 
@@ -1582,7 +1580,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
               response_type: 'ephemeral',
               text: errorMessage,
               blocks: errorBlocks,
-              replace_original: !!replaceOriginal,
+              replace_original: true, // Always replace processing message with error
               ...(threadTs && !isDM ? { thread_ts: threadTs } : {})
             });
 
