@@ -105,7 +105,36 @@ async function externalUploadAsSlackFile(client, imageBuffer, filename, userId) 
 }
 
 // Helper to call Gemini with retries and model fallbacks
+function thresholdFromEnv(value) {
+  if (!value) return null;
+  const v = String(value).toLowerCase();
+  if (v === 'none') return 'BLOCK_NONE';
+  if (v === 'low' || v === 'only_high') return 'BLOCK_ONLY_HIGH';
+  if (v === 'medium' || v === 'med') return 'BLOCK_MEDIUM_AND_ABOVE';
+  if (v === 'high') return 'BLOCK_HIGH_AND_ABOVE';
+  return null;
+}
+
+function getSafetySettingsFromEnv() {
+  const base = thresholdFromEnv(process.env.GEMINI_SAFETY);
+  const perCat = {
+    HARM_CATEGORY_VIOLENCE: thresholdFromEnv(process.env.GEMINI_SAFETY_VIOLENCE),
+    HARM_CATEGORY_SEXUAL: thresholdFromEnv(process.env.GEMINI_SAFETY_SEXUAL),
+    HARM_CATEGORY_HATE_SPEECH: thresholdFromEnv(process.env.GEMINI_SAFETY_HATE),
+    HARM_CATEGORY_HARASSMENT: thresholdFromEnv(process.env.GEMINI_SAFETY_HARASSMENT),
+    HARM_CATEGORY_DANGEROUS_CONTENT: thresholdFromEnv(process.env.GEMINI_SAFETY_DANGEROUS)
+  };
+  const cats = Object.keys(perCat);
+  const settings = [];
+  for (const cat of cats) {
+    const t = perCat[cat] || base;
+    if (t) settings.push({ category: cat, threshold: t });
+  }
+  return settings.length ? settings : null;
+}
+
 async function callGeminiWithRetry(ai, contentParts, isProduction) {
+  const safetySettings = getSafetySettingsFromEnv();
   const defaultModels = [
     process.env.GEMINI_MODEL || 'gemini-2.5-flash-image-preview',
     'gemini-2.0-flash',
@@ -125,17 +154,18 @@ async function callGeminiWithRetry(ai, contentParts, isProduction) {
         if (!isProduction) console.log(`Gemini call: model=${modelName} attempt=${attempt}`);
         // Pattern 1
         try {
-          const model = ai.getGenerativeModel({ model: modelName });
-          return await model.generateContent(contentParts);
+          // Prefer direct call with safety settings (most flexible)
+          return await ai.generateContent({ model: modelName, contents: [{ parts: contentParts }], ...(safetySettings ? { safetySettings } : {}) });
         } catch (e1) {
-          if (!isProduction) console.log('getGenerativeModel failed:', e1.message);
+          if (!isProduction) console.log('ai.generateContent failed:', e1.message);
           try {
-            // Pattern 2
-            return await ai.generateContent({ model: modelName, contents: [{ parts: contentParts }] });
+            // Next: bind model with safety settings, then call with options
+            const model = ai.getGenerativeModel({ model: modelName, ...(safetySettings ? { safetySettings } : {}) });
+            return await model.generateContent({ contents: [{ parts: contentParts }] });
           } catch (e2) {
-            if (!isProduction) console.log('direct generateContent failed:', e2.message);
-            // Pattern 3
-            return await ai.models.generateContent({ model: modelName, contents: [{ parts: contentParts }] });
+            if (!isProduction) console.log('getGenerativeModel + generateContent failed:', e2.message);
+            // Last resort legacy shape
+            return await ai.models.generateContent({ model: modelName, contents: [{ parts: contentParts }], ...(safetySettings ? { safetySettings } : {}) });
           }
         }
       } catch (err) {
@@ -185,9 +215,11 @@ const handleApiResponse = async (response, context = 'edit', client, userId, cha
   // Check for prompt blocking first
   if (response.promptFeedback?.blockReason) {
     const { blockReason, blockReasonMessage } = response.promptFeedback;
-    const errorMessage = `Request was blocked. Reason: ${blockReason}. ${blockReasonMessage || ''}`;
-    console.error('API request blocked:', blockReason);
-    throw new Error(errorMessage);
+    console.error('API request blocked (prompt):', blockReason);
+    const error = new Error('CONTENT_BLOCKED');
+    error.reason = blockReason;
+    error.userMessage = 'Your prompt was blocked by content safety filters.' + (blockReasonMessage ? `\n\n${blockReasonMessage}` : '');
+    throw error;
   }
 
   // Try to find the image part
