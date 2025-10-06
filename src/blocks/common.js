@@ -4,9 +4,7 @@ const SUCCESS_TEXT = '✅ Edit complete!';
 function buildSuccessHeader(prompt, metaLines = []) {
   const lines = [];
   lines.push('✅ *Edit complete!*');
-  if (prompt && String(prompt).trim().length) {
-    lines.push(`*Prompt:* "${prompt}"`);
-  }
+  // Prompt display removed per user request
   if (Array.isArray(metaLines) && metaLines.length) {
     for (const l of metaLines) {
       if (l && String(l).trim().length) lines.push(l);

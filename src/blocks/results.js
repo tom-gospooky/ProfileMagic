@@ -33,9 +33,9 @@ function buildImageBlocksFromResults(results) {
     if (!item.localUrl) continue;
     blocks.push({
       type: 'image',
-      title: { type: 'plain_text', text: `✨ ${item.filename}` },
+      title: { type: 'plain_text', text: '✨ Edited' },
       image_url: item.localUrl,
-      alt_text: `AI-transformed ${item.filename}`
+      alt_text: 'AI-transformed image'
     });
   }
   return blocks;

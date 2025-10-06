@@ -336,15 +336,15 @@ async function handleRetrySame({ ack, body, client }) {
   await ack();
 
   try {
-    const payload = JSON.parse(body.actions?.[0]?.value || '{}');
+    const payload = parseActionValue(body, {});
     const userId = body.user.id;
-    const channelId = payload.channelId || body.channel?.id || body.container?.channel_id || body.channel_id;
+    const channelId = payload.channelId || extractChannelId(body);
     const promptValue = payload.prompt || '';
     const files = Array.isArray(payload.files) ? payload.files : [];
     const useProfileRef = payload.useProfileRef ? ['include_profile_reference'] : [];
     const threadTs = body.message?.thread_ts || body.message?.ts || body.container?.thread_ts || body.container?.message_ts || null;
 
-    // Kick off the same processing again; use response_url but do NOT replace original so prior message persists
+    // Retry: do NOT use response_url (would post ephemeral in DM), post new message in channel instead
     await processImagesAsync(
       client,
       userId,
@@ -353,19 +353,22 @@ async function handleRetrySame({ ack, body, client }) {
       files,
       useProfileRef,
       null,
-      body.response_url || null,
+      null, // Force null responseUrl so it posts in channel
       threadTs,
       false
     );
   } catch (error) {
     console.error('Retry same-settings error:', error);
     try {
+      const channelId = extractChannelId(body);
       await client.chat.postEphemeral({
-        channel: body.channel?.id || body.container?.channel_id || body.channel_id,
+        channel: channelId,
         user: body.user.id,
         text: '❌ Could not retry with the same settings. Please try again.'
       });
-    } catch (_) {}
+    } catch (e) {
+      logBestEffortError('postEphemeral in handleRetrySame', e);
+    }
   }
 }
 
@@ -374,13 +377,13 @@ async function handleRetryDirect({ ack, body, client }) {
   await ack();
 
   try {
-    const payload = JSON.parse(body.actions?.[0]?.value || '{}');
+    const payload = parseActionValue(body, {});
     const userId = body.user.id;
-    const channelId = payload.channelId || body.channel?.id || body.container?.channel_id || body.channel_id;
+    const channelId = payload.channelId || extractChannelId(body);
     const promptValue = payload.prompt || '';
     const threadTs = body.message?.thread_ts || body.message?.ts || body.container?.thread_ts || body.container?.message_ts || null;
 
-    // Reuse processImagesAsync with profile reference only; use response_url without replacing the previous message
+    // Retry: do NOT use response_url (would post ephemeral in DM), post new message in channel instead
     await processImagesAsync(
       client,
       userId,
@@ -389,19 +392,22 @@ async function handleRetryDirect({ ack, body, client }) {
       [],
       ['include_profile_reference'],
       null,
-      body.response_url || null,
+      null, // Force null responseUrl so it posts in channel
       threadTs,
       false
     );
   } catch (error) {
     console.error('Retry direct error:', error);
     try {
+      const channelId = extractChannelId(body);
       await client.chat.postEphemeral({
-        channel: body.channel?.id || body.container?.channel_id || body.channel_id,
+        channel: channelId,
         user: body.user.id,
         text: '❌ Could not retry the edit. Please try again.'
       });
-    } catch (_) {}
+    } catch (e) {
+      logBestEffortError('postEphemeral in handleRetryDirect', e);
+    }
   }
 }
 
