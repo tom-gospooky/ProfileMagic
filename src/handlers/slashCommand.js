@@ -66,7 +66,7 @@ async function handleSlashCommand({ command, ack, respond, client, body }) {
     // User is authorized
     if (prompt && prompt.length > 0) {
       // Direct automatic generation based on current profile + text
-      await processDirectPrompt(client, userId, teamId, prompt, body.trigger_id, respond);
+      await processDirectPrompt(client, userId, teamId, prompt, body.trigger_id, respond, channelId, threadTs);
     } else {
       // No text: open the advanced modal (file selection)
       await showFileSelectionModal(client, body.trigger_id, teamId, userId, channelId, '', responseUrl, threadTs);
@@ -80,7 +80,7 @@ async function handleSlashCommand({ command, ack, respond, client, body }) {
   }
 }
 
-async function processDirectPrompt(client, userId, teamId, prompt, triggerId, respond) {
+async function processDirectPrompt(client, userId, teamId, prompt, triggerId, respond, channelId, threadTs) {
   // Process in background after acknowledging the command
   setTimeout(async () => {
     try {
@@ -140,8 +140,9 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
         });
       }
 
-      // Add action buttons: Update Profile, Advanced Options, Retry
+      // Standardized action buttons across flows
       const actions = [];
+      // Update Profile Picture
       actions.push({
         type: 'button',
         text: { type: 'plain_text', text: '✅ Update Profile Picture' },
@@ -149,20 +150,35 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
         action_id: 'approve_edit_message',
         value: JSON.stringify({ editedImage: editedImageResult.localUrl, prompt })
       });
+      // Post (no modal, current channel)
       actions.push({
         type: 'button',
-        text: { type: 'plain_text', text: '⚙️ Advanced Options' },
+        text: { type: 'plain_text', text: '📣 Post' },
+        action_id: 'send_to_channel',
+        value: JSON.stringify({
+          results: [{ localUrl: editedImageResult.localUrl, filename: 'Edited Image' }],
+          prompt,
+          channelId
+        })
+      });
+      // Share… (open modal with channel selector)
+      actions.push({
+        type: 'button',
+        text: { type: 'plain_text', text: '📤 Share…' },
+        action_id: 'open_share_modal',
+        value: JSON.stringify({
+          results: [{ localUrl: editedImageResult.localUrl, filename: 'Edited Image' }],
+          prompt,
+          channelId
+        })
+      });
+      // Advanced
+      actions.push({
+        type: 'button',
+        text: { type: 'plain_text', text: '⚙️ Advanced' },
         action_id: 'open_advanced_modal',
         value: JSON.stringify({ prompt })
       });
-      actions.push({ type: 'button', text: { type: 'plain_text', text: '🔄 Retry' }, action_id: 'retry_edit_message', value: JSON.stringify({ prompt }) });
-      // Optional helper link if available
-      {
-        const openUrl = editedImageResult.slackFile?.permalink || editedImageResult.slackFile?.permalink_public;
-        if (openUrl) {
-          actions.push({ type: 'button', text: { type: 'plain_text', text: '🔎 Open in Slack' }, url: openUrl });
-        }
-      }
       responseBlocks.push({ type: 'actions', elements: actions });
 
       // Send single comprehensive response
@@ -224,13 +240,7 @@ async function showFileSelectionModal(client, triggerId, teamId, userId, channel
         text: 'Boo ✨'
       },
       blocks: [
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: '*🎨 Transform images with AI!*\n\nUpload images from your computer and describe how you want them changed.'
-          }
-        },
+
         {
           type: 'input',
           block_id: 'prompt_input',
@@ -246,7 +256,7 @@ async function showFileSelectionModal(client, triggerId, teamId, userId, channel
           },
           label: {
             type: 'plain_text',
-            text: 'Describe your transformation:'
+            text: 'Prompt:'
           }
         },
         {
@@ -260,7 +270,7 @@ async function showFileSelectionModal(client, triggerId, teamId, userId, channel
           },
           label: {
             type: 'plain_text',
-            text: 'Upload images to transform (optional):'
+            text: 'Use a reference image:'
           },
           optional: true
         }

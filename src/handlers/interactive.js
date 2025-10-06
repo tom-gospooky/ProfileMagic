@@ -1140,7 +1140,7 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
       return await ack({
         response_action: 'errors',
         errors: {
-          'file_input': 'Please either upload images OR check "Use my current profile photo as style reference".'
+          'file_input': 'Please either upload images OR check "Use my current profile photo as image reference".'
         }
       });
     }
@@ -1284,8 +1284,9 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
 
     // Send processing message using robust cascade approach
     // We will process each image individually; message shows total count
-    const plannedSourcesCount = (uploadedFiles?.length || 0) + (profileImageUrl ? 1 : 0);
-    const text = `🎨 *Processing ${plannedSourcesCount} image${plannedSourcesCount === 1 ? '' : 's'}...*\n*Prompt:* "${promptValue}"\n\nYour results will appear here shortly!`;
+    // const plannedSourcesCount = (uploadedFiles?.length || 0) + (profileImageUrl ? 1 : 0);
+    const text = `🎨 *Processing`;
+    // const text = `🎨 *Processing ${plannedSourcesCount} image${plannedSourcesCount === 1 ? '' : 's'}...*\n*Prompt:* "${promptValue}"\n\nYour results will appear here shortly!`;
 
     console.log('📤 Attempting to send processing message...');
     if (responseUrl) {
@@ -1415,26 +1416,17 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
           });
         }
 
-        // Add action buttons for successful edits
+        // Add standardized action buttons for successful edits
         if (successful.length > 0) {
           const actionElements = [];
 
-          // Always add "Try Again" button
-          actionElements.push({
-            type: 'button',
-            text: { type: 'plain_text', text: '🔄 Try Again' },
-            action_id: 'retry_edit_message',
-            value: JSON.stringify({ prompt: promptValue, channelId })
-          });
-
-          // Add profile picture button only if user opted to include profile photo
-          const profileSelected = Array.isArray(useProfileRef) && useProfileRef.length > 0;
-          if (successful.length === 1 && profileSelected) {
-            actionElements.unshift({
+          // Update Profile Picture (only when one result exists)
+          if (successful.length === 1) {
+            actionElements.push({
               type: 'button',
-              text: { type: 'plain_text', text: '✅ Set as Profile Picture' },
+              text: { type: 'plain_text', text: '✅ Update Profile Picture' },
               style: 'primary',
-              action_id: 'approve_edit',
+              action_id: 'approve_edit_message',
               value: JSON.stringify({
                 editedImage: successful[0].result.localUrl,
                 prompt: promptValue
@@ -1442,19 +1434,23 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
             });
           }
 
-          // Prefer native Slack viewer: if we have a Slack file, offer an "Open in Slack" button
-          {
-            const openUrl = successful[0]?.result?.slackFile?.permalink || successful[0]?.result?.slackFile?.permalink_public;
-            if (successful.length === 1 && openUrl) {
-              actionElements.push({
-                type: 'button',
-                text: { type: 'plain_text', text: '🔎 Open in Slack' },
-                url: openUrl
-              });
-            }
-          }
+          // Post (no modal) to the current channel
+          actionElements.push({
+            type: 'button',
+            text: { type: 'plain_text', text: '📣 Post' },
+            action_id: 'send_to_channel',
+            value: JSON.stringify({
+              results: successful.map(result => ({
+                localUrl: result.result.localUrl,
+                fileId: result.result.fileId,
+                filename: result.originalFile.name
+              })),
+              prompt: promptValue,
+              channelId: channelId
+            })
+          });
 
-          // Share… button: opens a caption modal and lets user post a message
+          // Share… (open modal with channel selector)
           actionElements.push({
             type: 'button',
             text: { type: 'plain_text', text: '📤 Share…' },
@@ -1468,6 +1464,14 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
               prompt: promptValue,
               channelId: channelId
             })
+          });
+
+          // Advanced
+          actionElements.push({
+            type: 'button',
+            text: { type: 'plain_text', text: '⚙️ Advanced' },
+            action_id: 'open_advanced_modal',
+            value: JSON.stringify({ prompt: promptValue })
           });
 
           // // Add "Retry" button (always show since results are initially private)
@@ -2010,6 +2014,18 @@ async function handleOpenShareModal({ ack, body, client }) {
         blocks: [
           {
             type: 'input',
+            block_id: 'channel_select',
+            element: {
+              type: 'conversations_select',
+              action_id: 'selected_channel',
+              placeholder: { type: 'plain_text', text: 'Select a channel or DM' },
+              initial_conversation: channelId,
+              filter: { include: ['public', 'private', 'im', 'mpim'] }
+            },
+            label: { type: 'plain_text', text: 'Destination' }
+          },
+          {
+            type: 'input',
             block_id: 'caption_input',
             optional: true,
             element: {
@@ -2019,8 +2035,15 @@ async function handleOpenShareModal({ ack, body, client }) {
             },
             label: { type: 'plain_text', text: 'Caption (optional)' }
           },
-          ...( (results && results[0]?.localUrl) ? [{ type: 'image', image_url: results[0].localUrl, alt_text: 'Preview' }] : []),
-          { type: 'context', elements: [{ type: 'mrkdwn', text: 'Images will be attached to your message in this channel.' }] }
+          ...( (results && results[0]?.localUrl)
+            ? [{
+                type: 'section',
+                text: { type: 'mrkdwn', text: '*Preview*' },
+                accessory: { type: 'image', image_url: results[0].localUrl, alt_text: 'Preview' }
+              }]
+            : []
+          ),
+          { type: 'context', elements: [{ type: 'mrkdwn', text: 'Images will be attached to your message.' }] }
         ]
       }
     });
@@ -2062,7 +2085,7 @@ async function handleShareToChannelSubmission({ ack, body, client }) {
   const teamId = body.team.id;
   const meta = JSON.parse(body.view.private_metadata || '{}');
   const { results, prompt, defaultChannel } = meta;
-  const selectedChannel = defaultChannel;
+  const selectedChannel = body.view.state.values?.channel_select?.selected_channel?.selected_conversation || defaultChannel;
   const caption = body.view.state.values.caption_input?.share_caption?.value?.trim();
 
   const isPublic = typeof selectedChannel === 'string' && selectedChannel.startsWith('C');
