@@ -1,4 +1,5 @@
 // Common block builders to keep layouts consistent
+const SUCCESS_TEXT = '✅ Edit complete!';
 
 function buildSuccessHeader(prompt, metaLines = []) {
   const lines = [];
@@ -28,7 +29,8 @@ module.exports = {
   buildSuccessHeader,
   buildErrorSection,
   buildErrorBlocks,
-  buildErrorText
+  buildErrorText,
+  SUCCESS_TEXT
 };
 
 function titleForError(error) {

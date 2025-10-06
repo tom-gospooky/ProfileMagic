@@ -447,7 +447,7 @@ async function handleRetrySame({ ack, body, client }) {
     const useProfileRef = payload.useProfileRef ? ['include_profile_reference'] : [];
     const threadTs = body.message?.thread_ts || body.message?.ts || body.container?.thread_ts || body.container?.message_ts || null;
 
-    // Kick off the same processing again; do NOT use response_url here so the prior message persists
+    // Kick off the same processing again; use response_url but do NOT replace original so prior message persists
     await processImagesAsync(
       client,
       userId,
@@ -456,8 +456,9 @@ async function handleRetrySame({ ack, body, client }) {
       files,
       useProfileRef,
       null,
-      null,
-      threadTs
+      body.response_url || null,
+      threadTs,
+      false
     );
   } catch (error) {
     console.error('Retry same-settings error:', error);
@@ -482,7 +483,7 @@ async function handleRetryDirect({ ack, body, client }) {
     const promptValue = payload.prompt || '';
     const threadTs = body.message?.thread_ts || body.message?.ts || body.container?.thread_ts || body.container?.message_ts || null;
 
-    // Reuse processImagesAsync with profile reference only; do NOT use response_url so previous message persists
+    // Reuse processImagesAsync with profile reference only; use response_url without replacing the previous message
     await processImagesAsync(
       client,
       userId,
@@ -491,8 +492,9 @@ async function handleRetryDirect({ ack, body, client }) {
       [],
       ['include_profile_reference'],
       null,
-      null,
-      threadTs
+      body.response_url || null,
+      threadTs,
+      false
     );
   } catch (error) {
     console.error('Retry direct error:', error);
@@ -1378,7 +1380,7 @@ async function sendMessageRobust(client, channelId, userId, text, blocks = undef
   return null; // Return null instead of throwing to allow processing to continue
 }
 
-async function processImagesAsync(client, userId, channelId, promptValue, uploadedFiles, useProfileRef, profilePhoto, responseUrl = null, threadTs = null) {
+async function processImagesAsync(client, userId, channelId, promptValue, uploadedFiles, useProfileRef, profilePhoto, responseUrl = null, threadTs = null, replaceOriginal = true) {
   console.log('🚀 processImagesAsync STARTED');
   console.log('Parameters:', { userId, channelId, promptValue, uploadedFilesCount: uploadedFiles?.length || 0, useProfileRefCount: useProfileRef?.length || 0, hasProfilePhoto: !!profilePhoto });
 
@@ -1417,7 +1419,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
         await axios.post(responseUrl, {
           response_type: 'ephemeral',
           text,
-          replace_original: true,
+          replace_original: !!replaceOriginal,
           ...(threadTs ? { thread_ts: threadTs } : {})
         });
         usedResponseUrl = true;
@@ -1552,7 +1554,8 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
         // Actions already added via buildStandardActions above; avoid duplicates
 
         // Update the processing message with results (handle response_url vs chat.update)
-        const successText = `✅ Edit complete!`;
+        const { SUCCESS_TEXT } = require('../blocks/common');
+        const successText = SUCCESS_TEXT;
 
         if (usedResponseUrl && responseUrl) {
           try {
@@ -1560,7 +1563,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
               response_type: 'ephemeral',
               text: successText,
               blocks: resultBlocks,
-              replace_original: true,
+              replace_original: !!replaceOriginal,
               ...(threadTs ? { thread_ts: threadTs } : {})
             });
             console.log('✅ Updated ephemeral via response_url');
@@ -1610,7 +1613,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
               response_type: 'ephemeral',
               text: errorMessage,
               blocks: errorBlocks,
-              replace_original: true,
+              replace_original: !!replaceOriginal,
               ...(threadTs ? { thread_ts: threadTs } : {})
             });
           } catch (e) {

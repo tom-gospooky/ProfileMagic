@@ -125,8 +125,9 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
       responseBlocks.push({ type: 'actions', elements: actions });
 
       // Send single comprehensive response
+      const { SUCCESS_TEXT } = require('../blocks/common');
       await respond({
-        text: '✅ Edit complete!',
+        text: SUCCESS_TEXT,
         response_type: 'ephemeral',
         blocks: responseBlocks
       });
