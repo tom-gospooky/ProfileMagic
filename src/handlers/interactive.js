@@ -417,6 +417,7 @@ async function handleRetrySame({ ack, body, client }) {
     const promptValue = payload.prompt || '';
     const files = Array.isArray(payload.files) ? payload.files : [];
     const useProfileRef = payload.useProfileRef ? ['include_profile_reference'] : [];
+    const threadTs = body.message?.thread_ts || body.message?.ts || body.container?.thread_ts || body.container?.message_ts || null;
 
     // Kick off the same processing again using response_url for ephemerals when available
     await processImagesAsync(
@@ -427,7 +428,8 @@ async function handleRetrySame({ ack, body, client }) {
       files,
       useProfileRef,
       null,
-      body.response_url || null
+      body.response_url || null,
+      threadTs
     );
   } catch (error) {
     console.error('Retry same-settings error:', error);
@@ -450,6 +452,7 @@ async function handleRetryDirect({ ack, body, client }) {
     const userId = body.user.id;
     const channelId = payload.channelId || body.channel?.id || body.container?.channel_id || body.channel_id;
     const promptValue = payload.prompt || '';
+    const threadTs = body.message?.thread_ts || body.message?.ts || body.container?.thread_ts || body.container?.message_ts || null;
 
     // Reuse processImagesAsync with profile reference only
     await processImagesAsync(
@@ -460,7 +463,8 @@ async function handleRetryDirect({ ack, body, client }) {
       [],
       ['include_profile_reference'],
       null,
-      body.response_url || null
+      body.response_url || null,
+      threadTs
     );
   } catch (error) {
     console.error('Retry direct error:', error);
@@ -1129,7 +1133,7 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
   try {
     // Parse metadata
     const metadata = JSON.parse(view.private_metadata);
-    const { channelId, profilePhoto, responseUrl } = metadata;
+    const { channelId, profilePhoto, responseUrl, threadTs } = metadata;
 
     // Get values from the modal
     const promptValue = view.state.values.prompt_input?.prompt_text?.value?.trim();
@@ -1168,7 +1172,7 @@ async function handleFileSelectionModal({ ack, body, view, client }) {
     console.log('Channel/User info:', { channelId, userId, hasProfilePhoto: !!profilePhoto });
 
     // Process asynchronously AFTER modal is acknowledged
-    processImagesAsync(client, userId, channelId, promptValue, uploadedFiles, useProfileRef, profilePhoto, responseUrl)
+    processImagesAsync(client, userId, channelId, promptValue, uploadedFiles, useProfileRef, profilePhoto, responseUrl, threadTs || null)
       .catch(async error => {
         console.error('Critical error in background processing:', error);
         // Try to send error message to user
@@ -1211,6 +1215,7 @@ async function ensureBotInChannel(client, channelId) {
 // options.allowPublic: when true, may post publicly; otherwise never posts publicly
 async function sendMessageRobust(client, channelId, userId, text, blocks = undefined, options = {}) {
   const allowPublic = !!options.allowPublic;
+  const threadTs = options.threadTs || undefined;
   const isImChannel = typeof channelId === 'string' && channelId.startsWith('D');
   const methods = [];
 
@@ -1218,19 +1223,19 @@ async function sendMessageRobust(client, channelId, userId, text, blocks = undef
   if (!isImChannel) {
     methods.push({
       name: 'ephemeral',
-      fn: () => client.chat.postEphemeral({ channel: channelId, user: userId, text, blocks })
+      fn: () => client.chat.postEphemeral({ channel: channelId, user: userId, text, blocks, ...(threadTs ? { thread_ts: threadTs } : {}) })
     });
   }
 
   methods.push({
     name: 'dm_to_user',
-    fn: () => client.chat.postMessage({ channel: userId, text, blocks })
+    fn: () => client.chat.postMessage({ channel: userId, text, blocks, ...(threadTs ? { thread_ts: threadTs } : {}) })
   });
 
   if (allowPublic) {
     methods.unshift({
       name: 'public_message',
-      fn: () => client.chat.postMessage({ channel: channelId, text, blocks })
+      fn: () => client.chat.postMessage({ channel: channelId, text, blocks, ...(threadTs ? { thread_ts: threadTs } : {}) })
     });
   }
 
@@ -1269,7 +1274,7 @@ async function sendMessageRobust(client, channelId, userId, text, blocks = undef
   return null; // Return null instead of throwing to allow processing to continue
 }
 
-async function processImagesAsync(client, userId, channelId, promptValue, uploadedFiles, useProfileRef, profilePhoto, responseUrl = null) {
+async function processImagesAsync(client, userId, channelId, promptValue, uploadedFiles, useProfileRef, profilePhoto, responseUrl = null, threadTs = null) {
   console.log('🚀 processImagesAsync STARTED');
   console.log('Parameters:', { userId, channelId, promptValue, uploadedFilesCount: uploadedFiles?.length || 0, useProfileRefCount: useProfileRef?.length || 0, hasProfilePhoto: !!profilePhoto });
 
@@ -1307,19 +1312,20 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
       try {
         await axios.post(responseUrl, {
           response_type: 'ephemeral',
-          text
+          text,
+          ...(threadTs ? { thread_ts: threadTs } : {})
         });
         usedResponseUrl = true;
         console.log('✅ Processing ephemeral sent via response_url');
       } catch (e) {
         console.log('❌ response_url processing send failed, falling back:', e.response?.data || e.message);
         usedResponseUrl = false;
-        processingMsg = await sendMessageRobust(client, channelId, userId, text, undefined, { allowPublic: false });
+        processingMsg = await sendMessageRobust(client, channelId, userId, text, undefined, { allowPublic: false, threadTs });
         processingTs = processingMsg?.ts || processingMsg?.message_ts || null;
         processingChannel = processingMsg?.channel || channelId;
       }
     } else {
-      processingMsg = await sendMessageRobust(client, channelId, userId, text, undefined, { allowPublic: false });
+      processingMsg = await sendMessageRobust(client, channelId, userId, text, undefined, { allowPublic: false, threadTs });
       processingTs = processingMsg?.ts || processingMsg?.message_ts || null;
       processingChannel = processingMsg?.channel || channelId;
     }
@@ -1545,12 +1551,13 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
             await axios.post(responseUrl, {
               response_type: 'ephemeral',
               text: successText,
-              blocks: resultBlocks
+              blocks: resultBlocks,
+              ...(threadTs ? { thread_ts: threadTs } : {})
             });
             console.log('✅ Updated ephemeral via response_url');
           } catch (e) {
             console.log('❌ response_url update failed, falling back:', e.response?.data || e.message);
-            await sendMessageRobust(client, channelId, userId, successText, resultBlocks, { allowPublic: false });
+            await sendMessageRobust(client, channelId, userId, successText, resultBlocks, { allowPublic: false, threadTs });
           }
         } else if (processingTs && processingMsg?.deliveryMethod !== 'ephemeral') {
           try {
@@ -1564,11 +1571,11 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
           } catch (updateError) {
             try { const { logSlackError } = require('../utils/logging'); logSlackError('chat.update(results)', updateError); } catch(_) { console.log('❌ Failed to update processing message:', updateError.message); }
             // Fallback: send new message
-            await sendMessageRobust(client, channelId, userId, successText, resultBlocks, { allowPublic: false });
+            await sendMessageRobust(client, channelId, userId, successText, resultBlocks, { allowPublic: false, threadTs });
           }
         } else {
           console.log('⚠️ No processing message to update, sending new results message');
-          await sendMessageRobust(client, channelId, userId, successText, resultBlocks, { allowPublic: false });
+          await sendMessageRobust(client, channelId, userId, successText, resultBlocks, { allowPublic: false, threadTs });
         }
 
       } catch (error) {
@@ -1593,11 +1600,12 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
             await axios.post(responseUrl, {
               response_type: 'ephemeral',
               text: errorMessage,
-              blocks: errorBlocks
+              blocks: errorBlocks,
+              ...(threadTs ? { thread_ts: threadTs } : {})
             });
           } catch (e) {
             console.log('❌ response_url error update failed:', e.response?.data || e.message);
-            await sendMessageRobust(client, channelId, userId, errorMessage, errorBlocks, { allowPublic: false });
+            await sendMessageRobust(client, channelId, userId, errorMessage, errorBlocks, { allowPublic: false, threadTs });
           }
         } else if (processingTs && processingMsg?.deliveryMethod !== 'ephemeral') {
           try {
@@ -1609,10 +1617,10 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
             });
           } catch (updateError) {
             try { const { logSlackError } = require('../utils/logging'); logSlackError('chat.update(error)', updateError); } catch(_) { console.log('❌ Failed to update processing message with error:', updateError.message); }
-            await sendMessageRobust(client, channelId, userId, errorMessage, errorBlocks, { allowPublic: false });
+            await sendMessageRobust(client, channelId, userId, errorMessage, errorBlocks, { allowPublic: false, threadTs });
           }
         } else {
-          await sendMessageRobust(client, channelId, userId, errorMessage, errorBlocks, { allowPublic: false });
+          await sendMessageRobust(client, channelId, userId, errorMessage, errorBlocks, { allowPublic: false, threadTs });
         }
     }
 
@@ -1629,7 +1637,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
 
     // Send error message using robust delivery
     try {
-      await sendMessageRobust(client, channelId, userId, errorMessage, undefined, { allowPublic: false });
+      await sendMessageRobust(client, channelId, userId, errorMessage, undefined, { allowPublic: false, threadTs });
     } catch (messageError) {
       console.error('All error message delivery methods failed:', messageError);
     }
