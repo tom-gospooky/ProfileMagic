@@ -359,7 +359,8 @@ async function handleRetrySame({ ack, body, client }) {
     const useProfileRef = payload.useProfileRef ? ['include_profile_reference'] : [];
     const threadTs = body.message?.thread_ts || body.message?.ts || body.container?.thread_ts || body.container?.message_ts || null;
 
-    // Retry: do NOT use response_url (would post ephemeral in DM), post new message in channel instead
+    // Retry: Use response_url to maintain permission for user-to-user DMs
+    // Set replaceOriginal=false to keep previous messages visible
     await processImagesAsync(
       client,
       userId,
@@ -368,9 +369,9 @@ async function handleRetrySame({ ack, body, client }) {
       files,
       useProfileRef,
       null,
-      null, // Force null responseUrl so it posts in channel
+      body.response_url || null, // Use response_url for DM permission
       threadTs,
-      false
+      false // replaceOriginal=false keeps prior result
     );
   } catch (error) {
     console.error('Retry same-settings error:', error);
@@ -413,7 +414,8 @@ async function handleRetryDirect({ ack, body, client }) {
     const promptValue = payload.prompt || '';
     const threadTs = body.message?.thread_ts || body.message?.ts || body.container?.thread_ts || body.container?.message_ts || null;
 
-    // Retry: do NOT use response_url (would post ephemeral in DM), post new message in channel instead
+    // Retry: Use response_url to maintain permission for user-to-user DMs
+    // Set replaceOriginal=false to keep previous messages visible
     await processImagesAsync(
       client,
       userId,
@@ -422,9 +424,9 @@ async function handleRetryDirect({ ack, body, client }) {
       [],
       ['include_profile_reference'],
       null,
-      null, // Force null responseUrl so it posts in channel
+      body.response_url || null, // Use response_url for DM permission
       threadTs,
-      false
+      false // replaceOriginal=false keeps prior result
     );
   } catch (error) {
     console.error('Retry direct error:', error);
@@ -1182,9 +1184,9 @@ async function ensureDestinationChannelId(client, desiredChannelId, userId) {
       return { channelId: im.channel?.id, reason: 'opened_dm' };
     }
     if (desiredChannelId.startsWith('D')) {
-      // Ensure DM exists
-      const im = await client.conversations.open({ users: userId });
-      return { channelId: im.channel?.id, reason: 'dm' };
+      // Return provided DM channel as-is (might be user-to-user DM from slash command)
+      // Do NOT call conversations.open as it returns bot-user DM, not the original DM
+      return { channelId: desiredChannelId, reason: 'dm' };
     }
     if (desiredChannelId.startsWith('C')) {
       try { await ensureBotInChannel(client, desiredChannelId); } catch (_) {}
