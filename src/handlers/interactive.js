@@ -1343,11 +1343,13 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
       });
 
       try {
+        // response_url doesn't support thread_ts in DMs (causes wrong_thread_ts error)
+        const isDM = channelId?.startsWith('D');
         const response = await axios.post(responseUrl, {
           response_type: 'ephemeral',
           text,
           replace_original: !!replaceOriginal,
-          ...(threadTs ? { thread_ts: threadTs } : {})
+          ...(threadTs && !isDM ? { thread_ts: threadTs } : {})
         });
 
         console.log('✅ response_url POST succeeded:', {
@@ -1505,12 +1507,14 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
           });
 
           try {
+            // response_url doesn't support thread_ts in DMs (causes wrong_thread_ts error)
+            const isDM = channelId?.startsWith('D');
             const response = await axios.post(responseUrl, {
               response_type: 'ephemeral',
               text: successText,
               blocks: resultBlocks,
               replace_original: !!replaceOriginal,
-              ...(threadTs ? { thread_ts: threadTs } : {})
+              ...(threadTs && !isDM ? { thread_ts: threadTs } : {})
             });
 
             console.log('✅ Result update via response_url succeeded:', {
@@ -1572,12 +1576,14 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
           });
 
           try {
+            // response_url doesn't support thread_ts in DMs (causes wrong_thread_ts error)
+            const isDM = channelId?.startsWith('D');
             const response = await axios.post(responseUrl, {
               response_type: 'ephemeral',
               text: errorMessage,
               blocks: errorBlocks,
               replace_original: !!replaceOriginal,
-              ...(threadTs ? { thread_ts: threadTs } : {})
+              ...(threadTs && !isDM ? { thread_ts: threadTs } : {})
             });
 
             console.log('✅ Error update via response_url succeeded:', {
