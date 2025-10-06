@@ -645,7 +645,7 @@ async function handleReferenceImageSubmission({ ack, body, view, client }) {
     // Process the image with reference
     const editedImageResult = await imageService.editImage(currentPhoto, originalPrompt, client, userId, url);
 
-    // Show success with new result
+    // Show success with new result (no before/after)
     const successBlocks = [
       {
         type: 'section',
@@ -654,63 +654,51 @@ async function handleReferenceImageSubmission({ ack, body, view, client }) {
           text: `✅ *Image processed with reference!*\\n\\n*Prompt:* "${originalPrompt}"\\n*Reference:* ${imageData.filename}`
         }
       },
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: '*Before & After with Reference:*'
-        }
-      }
+      
     ];
 
-    // Add original image
-    successBlocks.push({
-      type: 'image',
-      title: {
-        type: 'plain_text',
-        text: '📸 Original Image'
-      },
-      image_url: currentPhoto,
-      alt_text: 'Original profile photo'
-    });
-
-    // Add edited image with reference
+    // Add edited image with reference only
     if (editedImageResult.localUrl) {
       successBlocks.push({
         type: 'image',
         title: {
           type: 'plain_text',
-          text: '✨ AI-Edited with Reference'
+          text: '✨ Edited'
         },
         image_url: editedImageResult.localUrl,
         alt_text: 'AI-edited profile photo with reference'
       });
     }
 
-    // Add action buttons
+    // Add standardized action buttons
     const actionElementsRef = [];
     actionElementsRef.push({
       type: 'button',
-      text: { type: 'plain_text', text: '🔄 Try Again' },
+      text: { type: 'plain_text', text: '✅ Update Profile Picture' },
+      style: 'primary',
+      action_id: 'approve_edit',
+      value: JSON.stringify({ editedImage: editedImageResult.localUrl, prompt: originalPrompt })
+    });
+    actionElementsRef.push({
+      type: 'button',
+      text: { type: 'plain_text', text: '📤 Share…' },
+      action_id: 'open_share_modal',
+      value: JSON.stringify({
+        results: [{ localUrl: editedImageResult.localUrl, filename: imageData.filename || 'Edited Image' }],
+        prompt: originalPrompt
+      })
+    });
+    actionElementsRef.push({
+      type: 'button',
+      text: { type: 'plain_text', text: '⚙️ Advanced' },
+      action_id: 'open_advanced_modal',
+      value: JSON.stringify({ prompt: originalPrompt })
+    });
+    actionElementsRef.push({
+      type: 'button',
+      text: { type: 'plain_text', text: '🔄 Retry' },
       action_id: 'retry_edit'
     });
-    // Show set profile only if profile reference was selected
-    const profileSelectedRef = true; // this path is reference-only
-    if (profileSelectedRef) {
-      actionElementsRef.unshift({
-        type: 'button',
-        text: { type: 'plain_text', text: '✅ Set as Profile Picture' },
-        style: 'primary',
-        action_id: 'approve_edit',
-        value: JSON.stringify({ editedImage: editedImageResult.localUrl, prompt: originalPrompt })
-      });
-    }
-    {
-      const openUrl = editedImageResult.slackFile?.permalink || editedImageResult.slackFile?.permalink_public;
-      if (openUrl) {
-        actionElementsRef.push({ type: 'button', text: { type: 'plain_text', text: '🔎 Open in Slack' }, url: openUrl });
-      }
-    }
     successBlocks.push({ type: 'actions', elements: actionElementsRef });
 
     await client.views.update({
@@ -1503,7 +1491,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
           }
 
           // Post (no modal) to the current channel
-/*           actionElements.push({
+          actionElements.push({
             type: 'button',
             text: { type: 'plain_text', text: '📣 Post' },
             action_id: 'send_to_channel',
@@ -1516,7 +1504,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
               prompt: promptValue,
               channelId: channelId
             })
-          }); */
+          });
 
           // Share… (open modal with channel selector)
           actionElements.push({
@@ -1776,19 +1764,6 @@ async function handleProfileOnlyModal({ ack, body, view, client }) {
           type: 'mrkdwn',
           text: `✅ *Profile photo edited!*\n\n*Prompt:* "${promptValue}"`
         }
-      },
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: '*Before & After:*'
-        }
-      },
-      {
-        type: 'image',
-        title: { type: 'plain_text', text: '📸 Original' },
-        image_url: currentPhoto,
-        alt_text: 'Original profile photo'
       }
     ];
 
@@ -1796,7 +1771,7 @@ async function handleProfileOnlyModal({ ack, body, view, client }) {
     if (result.localUrl) {
       resultBlocks.push({
         type: 'image',
-        title: { type: 'plain_text', text: '✨ AI-Edited' },
+        title: { type: 'plain_text', text: '✨ Edited' },
         image_url: result.localUrl,
         alt_text: 'AI-edited profile photo'
       });

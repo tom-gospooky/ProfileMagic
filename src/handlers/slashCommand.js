@@ -92,7 +92,7 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
       // Edit the image (without reference for now)
       const editedImageResult = await imageService.editImage(currentPhoto, prompt, client, userId);
       
-      // Send single response with before/after images and action buttons  
+      // Send single response with unified layout (no before/after)
       let successText = `✅ *Edit complete!*`;
       
       const responseBlocks = [
@@ -102,26 +102,8 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
             type: 'mrkdwn',
             text: successText
           }
-        },
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: '*Before & After Comparison:*'
-          }
         }
       ];
-
-      // Add original image
-      responseBlocks.push({
-        type: 'image',
-        title: {
-          type: 'plain_text',
-          text: '📸 Original Image'
-        },
-        image_url: currentPhoto,
-        alt_text: 'Original profile photo'
-      });
 
       // Add edited image (use hosted URL for reliability)
       if (editedImageResult.localUrl) {
@@ -144,7 +126,7 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
         value: JSON.stringify({ editedImage: editedImageResult.localUrl, prompt })
       });
       // Post (no modal, current channel)
-/*       actions.push({
+      actions.push({
         type: 'button',
         text: { type: 'plain_text', text: '📣 Post' },
         action_id: 'send_to_channel',
@@ -153,11 +135,11 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
           prompt,
           channelId
         })
-      }); */
+      });
       // Share… (open modal with channel selector)
       actions.push({
         type: 'button',
-        text: { type: 'plain_text', text: '🔥 Post to Channel' },
+        text: { type: 'plain_text', text: '📤 Share…' },
         action_id: 'open_share_modal',
         value: JSON.stringify({
           results: [{ localUrl: editedImageResult.localUrl, filename: 'Edited Image' }],
@@ -168,7 +150,7 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
       // Advanced
       actions.push({
         type: 'button',
-        text: { type: 'plain_text', text: '🔄' },
+        text: { type: 'plain_text', text: '⚙️ Advanced' },
         action_id: 'open_advanced_modal',
         value: JSON.stringify({ prompt })
       });
@@ -548,30 +530,14 @@ async function showPreviewModal(client, triggerId, originalImage, editedImage, p
     }
   ];
 
-  // Only show images if they're not localhost URLs
+  // Only show edited image (no before/after)
   if (!isLocalhost) {
     blocks.push(
       {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: '*Before → After*'
-        }
-      },
-      {
         type: 'image',
         title: {
           type: 'plain_text',
-          text: 'Original'
-        },
-        image_url: originalImage,
-        alt_text: 'Original profile photo'
-      },
-      {
-        type: 'image',
-        title: {
-          type: 'plain_text',
-          text: 'Edited'
+          text: '✨ Edited'
         },
         image_url: editedImage,
         alt_text: 'Edited profile photo'
