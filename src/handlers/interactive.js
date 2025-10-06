@@ -708,35 +708,14 @@ async function handleReferenceImageSubmission({ ack, body, view, client }) {
 
   } catch (error) {
     console.error('Reference image processing error:', error.message);
-    
-    let errorMessage = '❌ Failed to process image with reference. Please try again.';
-    
-    // Check for specific error types
-    if (error.message === 'CONTENT_BLOCKED') {
-      errorMessage = `🚫 **Content Blocked**\\n\\n${error.userMessage}\\n\\n*Try different prompts or reference images.*`;
-    } else if (error.message === 'GENERATION_FAILED') {
-      errorMessage = `⚠️ **Generation Failed**\\n\\n${error.userMessage}`;
-    }
-
+    const { buildErrorBlocks } = require('../blocks/common');
     await client.views.update({
       view_id: body.view.id,
       view: {
         type: 'modal',
-        title: {
-          type: 'plain_text',
-          text: 'Error'
-        },
-        blocks: [{
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: errorMessage
-          }
-        }],
-        close: {
-          type: 'plain_text',
-          text: 'Close'
-        }
+        title: { type: 'plain_text', text: 'Error' },
+        blocks: buildErrorBlocks(error),
+        close: { type: 'plain_text', text: 'Close' }
       }
     });
   }
@@ -1129,21 +1108,18 @@ async function handleMessageShortcut({ ack, shortcut, body, client }) {
       }
 
       // Send new ephemeral with error (in-thread if applicable)
-      await client.chat.postEphemeral({
-        channel: channelId,
-        user: userId,
-        text: errorMessage,
-        thread_ts: threadTs
-      });
+      const { buildErrorBlocks, buildErrorText } = require('../blocks/common');
+      const blocksErr = buildErrorBlocks(editError);
+      const textErr = buildErrorText(editError);
+      await client.chat.postEphemeral({ channel: channelId, user: userId, text: textErr, blocks: blocksErr, thread_ts: threadTs });
     }
 
   } catch (error) {
     console.error('Message shortcut error:', error.message);
-    await client.chat.postEphemeral({
-      channel: channelId,
-      user: userId,
-      text: '❌ Something went wrong processing your shortcut. Please try again.'
-    });
+    const { buildErrorBlocks, buildErrorText } = require('../blocks/common');
+    const generic = new Error('GENERATION_FAILED');
+    generic.userMessage = 'Something went wrong processing your shortcut. Please try again.';
+    await client.chat.postEphemeral({ channel: channelId, user: userId, text: buildErrorText(generic), blocks: buildErrorBlocks(generic) });
   }
 }
 

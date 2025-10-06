@@ -128,32 +128,13 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
       
     } catch (error) {
       console.error('Error processing direct prompt:', error);
-      
-      let errorMessage = '❌ Failed to process your image. Please try again.';
-      
-      // Check for specific error types
-      if (error.message === 'CONTENT_BLOCKED') {
-        errorMessage = `🚫 **Content Blocked**\n\n${error.userMessage}\n\n*Try prompts like:* "make cartoon style", "add sunglasses", "vintage filter", etc.`;
-      } else if (error.message === 'GENERATION_FAILED') {
-        errorMessage = `⚠️ **Generation Failed**\n\n${error.userMessage}`;
-      }
-      
-      // Send response with specific error feedback
+      const { buildErrorBlocks, buildErrorText } = require('../blocks/common');
+      const blocks = buildErrorBlocks(error);
+      const text = buildErrorText(error);
       try {
-        await respond({
-          text: errorMessage,
-          response_type: 'ephemeral'
-        });
+        await respond({ text, response_type: 'ephemeral', blocks });
       } catch (respondError) {
-        // Fallback to DM if respond fails
-        try {
-          await client.chat.postMessage({
-            channel: userId,
-            text: errorMessage
-          });
-        } catch (dmError) {
-          console.error('Failed to send error message:', dmError);
-        }
+        try { await client.chat.postMessage({ channel: userId, text }); } catch (dmError) { console.error('Failed to send error message:', dmError); }
       }
     }
   }, 100); // Small delay to ensure command is acknowledged first
