@@ -371,7 +371,7 @@ async function handleRetrySame({ ack, body, client }) {
       null,
       body.response_url || null, // Use response_url for DM permission
       threadTs,
-      false // replaceOriginal=false keeps prior result
+      true // replaceOriginal=true to update processing message
     );
   } catch (error) {
     console.error('Retry same-settings error:', error);
@@ -426,7 +426,7 @@ async function handleRetryDirect({ ack, body, client }) {
       null,
       body.response_url || null, // Use response_url for DM permission
       threadTs,
-      false // replaceOriginal=false keeps prior result
+      true // replaceOriginal=true to update processing message
     );
   } catch (error) {
     console.error('Retry direct error:', error);
