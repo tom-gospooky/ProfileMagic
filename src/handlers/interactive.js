@@ -1295,14 +1295,13 @@ async function sendMessageRobust(client, channelId, userId, text, blocks = undef
   return null; // Return null instead of throwing to allow processing to continue
 }
 
-async function processImagesAsync(client, userId, channelId, promptValue, uploadedFiles, useProfileRef, profilePhoto, responseUrl = null, threadTs = null, replaceOriginal = true) {
+async function processImagesAsync(client, userId, channelId, promptValue, uploadedFiles, useProfileRef, profilePhoto, responseUrl = null, threadTs = null) {
   console.log('🚀 processImagesAsync STARTED');
   console.log('Parameters:', { userId, channelId, promptValue, uploadedFilesCount: uploadedFiles?.length || 0, useProfileRefCount: useProfileRef?.length || 0, hasProfilePhoto: !!profilePhoto });
 
   let processingMsg = null;
   let processingTs = null;
   let processingChannel = null;
-  let usedResponseUrl = false;
 
   try {
     // Determine profile photo to include if requested
@@ -1329,51 +1328,11 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
     // const text = `🎨 *Processing ${plannedSourcesCount} image${plannedSourcesCount === 1 ? '' : 's'}...*\n*Prompt:* "${promptValue}"\n\nYour results will appear here shortly!`;
 
     console.log('📤 Attempting to send processing message...');
-    if (responseUrl) {
-      console.log('🔍 RESPONSE_URL DEBUG:', {
-        hasResponseUrl: !!responseUrl,
-        urlPreview: responseUrl?.substring(0, 50) + '...',
-        channelId,
-        userId,
-        isUserToUserDM: channelId?.startsWith('D'),
-        hasThreadTs: !!threadTs
-      });
-
-      try {
-        // response_url doesn't support thread_ts in DMs (causes wrong_thread_ts error)
-        const isDM = channelId?.startsWith('D');
-        const response = await axios.post(responseUrl, {
-          response_type: 'ephemeral',
-          text,
-          replace_original: true, // Replace the button message with processing status
-          ...(threadTs && !isDM ? { thread_ts: threadTs } : {})
-        });
-
-        console.log('✅ response_url POST succeeded:', {
-          status: response.status,
-          statusText: response.statusText,
-          dataPreview: JSON.stringify(response.data || {}).substring(0, 100)
-        });
-        usedResponseUrl = true;
-      } catch (e) {
-        console.log('❌ response_url POST FAILED:', {
-          status: e.response?.status,
-          statusText: e.response?.statusText,
-          errorData: e.response?.data,
-          errorMessage: e.message,
-          willFallbackTo: 'sendMessageRobust'
-        });
-        usedResponseUrl = false;
-        processingMsg = await sendMessageRobust(client, channelId, userId, text, undefined, { allowPublic: false, threadTs });
-        processingTs = processingMsg?.ts || processingMsg?.message_ts || null;
-        processingChannel = processingMsg?.channel || channelId;
-      }
-    } else {
-      console.log('⚠️ No response_url provided, using sendMessageRobust directly');
-      processingMsg = await sendMessageRobust(client, channelId, userId, text, undefined, { allowPublic: false, threadTs });
-      processingTs = processingMsg?.ts || processingMsg?.message_ts || null;
-      processingChannel = processingMsg?.channel || channelId;
-    }
+    // Don't use response_url for processing message - save it for final result update
+    // Using response_url here would consume it and make it unavailable for the result update
+    processingMsg = await sendMessageRobust(client, channelId, userId, text, undefined, { allowPublic: false, threadTs });
+    processingTs = processingMsg?.ts || processingMsg?.message_ts || null;
+    processingChannel = processingMsg?.channel || channelId;
 
     // Build sources for processing (uploaded + optional profile)
     let sources = [];
@@ -1494,10 +1453,10 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
         const { SUCCESS_TEXT } = require('../blocks/common');
         const successText = SUCCESS_TEXT;
 
-        if (usedResponseUrl && responseUrl) {
+        // Try response_url first (for button interactions), then try updating processing message
+        if (responseUrl) {
           console.log('🔍 RESULT UPDATE via response_url:', {
             hasResponseUrl: !!responseUrl,
-            replaceOriginal: !!replaceOriginal,
             blockCount: resultBlocks.length,
             channelId,
             isUserToUserDM: channelId?.startsWith('D')
@@ -1510,7 +1469,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
               response_type: 'ephemeral',
               text: successText,
               blocks: resultBlocks,
-              replace_original: true, // Always replace processing message with results
+              replace_original: true, // Replace button message with results
               ...(threadTs && !isDM ? { thread_ts: threadTs } : {})
             });
 
@@ -1518,15 +1477,34 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
               status: response.status,
               statusText: response.statusText
             });
+
+            // Note: Ephemeral processing message will remain visible (can't be deleted via API)
           } catch (e) {
             console.log('❌ response_url result update FAILED:', {
               status: e.response?.status,
               statusText: e.response?.statusText,
               errorData: e.response?.data,
               errorMessage: e.message,
-              willFallbackTo: 'sendMessageRobust'
+              willFallbackTo: 'update processing message or sendMessageRobust'
             });
-            await sendMessageRobust(client, channelId, userId, successText, resultBlocks, { allowPublic: false, threadTs });
+
+            // Fallback: try updating processing message
+            if (processingTs && processingMsg?.deliveryMethod !== 'ephemeral') {
+              try {
+                await client.chat.update({
+                  channel: processingChannel,
+                  ts: processingTs,
+                  text: successText,
+                  blocks: resultBlocks
+                });
+                console.log('✅ Results updated in processing message');
+              } catch (updateError) {
+                console.log('❌ Failed to update processing message:', updateError.data?.error || updateError.message);
+                await sendMessageRobust(client, channelId, userId, successText, resultBlocks, { allowPublic: false, threadTs });
+              }
+            } else {
+              await sendMessageRobust(client, channelId, userId, successText, resultBlocks, { allowPublic: false, threadTs });
+            }
           }
         } else if (processingTs && processingMsg?.deliveryMethod !== 'ephemeral') {
           try {
@@ -1564,10 +1542,9 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
           text: { type: 'mrkdwn', text: errorMessage }
         }];
 
-        if (usedResponseUrl && responseUrl) {
+        if (responseUrl) {
           console.log('🔍 ERROR UPDATE via response_url:', {
             hasResponseUrl: !!responseUrl,
-            replaceOriginal: !!replaceOriginal,
             channelId,
             isUserToUserDM: channelId?.startsWith('D')
           });
@@ -1579,7 +1556,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
               response_type: 'ephemeral',
               text: errorMessage,
               blocks: errorBlocks,
-              replace_original: true, // Always replace processing message with error
+              replace_original: true, // Replace button message with error
               ...(threadTs && !isDM ? { thread_ts: threadTs } : {})
             });
 
@@ -1587,15 +1564,33 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
               status: response.status,
               statusText: response.statusText
             });
+            // Note: Ephemeral processing message will remain visible
           } catch (e) {
             console.log('❌ response_url error update FAILED:', {
               status: e.response?.status,
               statusText: e.response?.statusText,
               errorData: e.response?.data,
               errorMessage: e.message,
-              willFallbackTo: 'sendMessageRobust'
+              willFallbackTo: 'update processing message or sendMessageRobust'
             });
-            await sendMessageRobust(client, channelId, userId, errorMessage, errorBlocks, { allowPublic: false, threadTs });
+
+            // Fallback: try updating processing message
+            if (processingTs && processingMsg?.deliveryMethod !== 'ephemeral') {
+              try {
+                await client.chat.update({
+                  channel: processingChannel,
+                  ts: processingTs,
+                  text: errorMessage,
+                  blocks: errorBlocks
+                });
+                console.log('✅ Error updated in processing message');
+              } catch (updateError) {
+                console.log('❌ Failed to update processing message with error:', updateError.data?.error || updateError.message);
+                await sendMessageRobust(client, channelId, userId, errorMessage, errorBlocks, { allowPublic: false, threadTs });
+              }
+            } else {
+              await sendMessageRobust(client, channelId, userId, errorMessage, errorBlocks, { allowPublic: false, threadTs });
+            }
           }
         } else if (processingTs && processingMsg?.deliveryMethod !== 'ephemeral') {
           try {
