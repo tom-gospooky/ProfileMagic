@@ -1,14 +1,29 @@
 // Shared helpers to build result blocks and standardized actions
 
+function coerceFilenameExt(name, defExt = 'jpg') {
+  if (!name || typeof name !== 'string') return `Edited Image.${defExt}`;
+  const trimmed = name.trim();
+  if (/\.(jpg|jpeg|png|gif|webp)$/i.test(trimmed)) return trimmed;
+  return `${trimmed}.${defExt}`;
+}
+
 function toSimpleResults(results) {
-  // Normalize various shapes to { localUrl, filename, fileId }
-  return (results || []).map(r => {
-    if (!r) return null;
-    if (r.localUrl) return r; // already simple
-    const rr = r.result || r;
-    const name = r.originalFile?.name || rr?.filename || 'Edited Image';
-    return { localUrl: rr?.localUrl, fileId: rr?.fileId, filename: name };
-  }).filter(Boolean);
+  // Normalize to { localUrl?, filename, fileId?, slackUrl?, permalink? }
+  return (results || [])
+    .map(r => {
+      if (!r) return null;
+      const rr = r.result || r;
+      const filenameRaw = r.originalFile?.name || rr?.filename || 'Edited Image';
+      const filename = coerceFilenameExt(filenameRaw);
+      // Prefer Slack file info when present
+      const slackFile = rr?.slackFile || r?.slackFile;
+      const slackUrl = slackFile?.url_private_download || slackFile?.url_private || r?.slackUrl;
+      const fileId = rr?.fileId || r?.fileId || slackFile?.id;
+      const localUrl = rr?.localUrl || r?.localUrl || null; // may be absent in Slack-files-first
+      const permalink = slackFile?.permalink_public || slackFile?.permalink || r?.permalink;
+      return { localUrl, filename, fileId, slackUrl, permalink };
+    })
+    .filter(Boolean);
 }
 
 function buildImageBlocksFromResults(results) {
@@ -31,13 +46,21 @@ function buildStandardActions({ results, prompt, channelId, approveActionId = 'a
   const actions = [];
 
   // Update Profile Picture — only when exactly one result exists
-  if (simple.length === 1 && simple[0].localUrl) {
+  if (simple.length === 1) {
+    const one = simple[0];
     actions.push({
       type: 'button',
       text: { type: 'plain_text', text: '✅ Update Profile Picture' },
       style: 'primary',
       action_id: approveActionId,
-      value: JSON.stringify({ editedImage: simple[0].localUrl, prompt })
+      value: JSON.stringify({
+        // Back-compat: include editedImage when available
+        editedImage: one.localUrl || null,
+        // Slack-files-first:
+        slackFileId: one.fileId || null,
+        slackUrl: one.slackUrl || null,
+        prompt
+      })
     });
   }
 
@@ -72,4 +95,3 @@ module.exports = {
   buildImageBlocksFromResults,
   buildStandardActions
 };
-

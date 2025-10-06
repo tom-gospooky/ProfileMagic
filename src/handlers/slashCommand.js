@@ -96,7 +96,7 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
       const { buildSuccessHeader } = require('../blocks/common');
       const responseBlocks = [ buildSuccessHeader(prompt) ];
 
-      // Add edited image (use hosted URL for reliability)
+      // Slack-files-first: Skip inline image preview if no external URL
       if (editedImageResult.localUrl) {
         responseBlocks.push({
           type: 'image',
@@ -109,7 +109,12 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
       // Standardized action buttons via shared helper
       const { buildStandardActions } = require('../blocks/results');
       const actions = buildStandardActions({
-        results: [{ localUrl: editedImageResult.localUrl, filename: 'Edited Image' }],
+        results: [{
+          localUrl: editedImageResult.localUrl || null,
+          fileId: editedImageResult.fileId || editedImageResult.slackFile?.id || null,
+          slackUrl: editedImageResult.slackFile?.url_private_download || null,
+          filename: 'Edited Image.jpg'
+        }],
         prompt,
         channelId,
         approveActionId: 'approve_edit_message',

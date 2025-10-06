@@ -312,7 +312,7 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
       }
     ];
 
-    // Add the edited image (use hosted URL for reliability)
+    // Add the edited image when an external URL exists (optional in Slack-files-first)
     if (editedImageResult.localUrl) {
       successBlocks.push({
         type: 'image',
@@ -332,7 +332,14 @@ async function handleExtendedModalSubmission({ ack, body, view, client }) {
       extActions.push({
         type: 'button', text: { type: 'plain_text', text: '✅ Set as Profile Picture' }, style: 'primary',
         action_id: 'approve_ext_edit',
-        value: JSON.stringify({ editedImage: editedImageResult.localUrl, prompt, referenceCount: referenceImages.length, useProfilePhoto })
+        value: JSON.stringify({
+          editedImage: editedImageResult.localUrl || null,
+          slackFileId: editedImageResult.fileId || editedImageResult.slackFile?.id || null,
+          slackUrl: editedImageResult.slackFile?.url_private_download || null,
+          prompt,
+          referenceCount: referenceImages.length,
+          useProfilePhoto
+        })
       });
     }
     extActions.push({ type: 'button', text: { type: 'plain_text', text: '🔄 Try Different Edit' }, action_id: 'retry_edit_message' });

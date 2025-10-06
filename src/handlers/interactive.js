@@ -103,12 +103,16 @@ async function handleApprove({ ack, body, client }) {
   const teamId = body.team.id;
   let editedImageUrl;
   let prompt;
+  let slackFileId = null;
+  let slackUrl = null;
 
   try {
     // Parse the JSON value that contains both editedImage and prompt
     const actionValue = JSON.parse(body.actions[0].value);
-    editedImageUrl = actionValue.editedImage;
+    editedImageUrl = actionValue.editedImage || null;
     prompt = actionValue.prompt;
+    slackFileId = actionValue.slackFileId || null;
+    slackUrl = actionValue.slackUrl || null;
   } catch (parseError) {
     // Fallback for old format (just the URL)
     editedImageUrl = body.actions[0].value;
@@ -119,8 +123,18 @@ async function handleApprove({ ack, body, client }) {
   try {
     if (!isProduction) console.log(`Updating profile photo for user ${userId}`);
     
+    // Resolve a usable URL
+    let sourceUrl = slackUrl || editedImageUrl;
+    if (!sourceUrl && slackFileId) {
+      try {
+        const info = await client.files.info({ file: slackFileId });
+        sourceUrl = info?.file?.url_private_download || info?.file?.url_private;
+      } catch (_) {}
+    }
+    if (!sourceUrl) throw new Error('No edited image available');
+
     // Update the user's profile photo
-    await slackService.updateProfilePhoto(client, userId, teamId, editedImageUrl);
+    await slackService.updateProfilePhoto(client, userId, teamId, sourceUrl);
     
     // Close modal and show success message
     await client.views.update({
@@ -294,12 +308,16 @@ async function handleApproveMessage({ ack, body, client }) {
   const isProduction = process.env.NODE_ENV === 'production';
   let editedImageUrl;
   let prompt;
+  let slackFileId = null;
+  let slackUrl = null;
 
   try {
     // Parse the JSON value that contains both editedImage and prompt
     const actionValue = JSON.parse(body.actions[0].value);
-    editedImageUrl = actionValue.editedImage;
+    editedImageUrl = actionValue.editedImage || null;
     prompt = actionValue.prompt;
+    slackFileId = actionValue.slackFileId || null;
+    slackUrl = actionValue.slackUrl || null;
   } catch (parseError) {
     // Fallback for old format (just the URL)
     editedImageUrl = body.actions[0].value;
@@ -309,8 +327,18 @@ async function handleApproveMessage({ ack, body, client }) {
   try {
     if (!isProduction) console.log(`Updating profile photo for user ${userId}`);
     
+    // Resolve a usable URL
+    let sourceUrl = slackUrl || editedImageUrl;
+    if (!sourceUrl && slackFileId) {
+      try {
+        const info = await client.files.info({ file: slackFileId });
+        sourceUrl = info?.file?.url_private_download || info?.file?.url_private;
+      } catch (_) {}
+    }
+    if (!sourceUrl) throw new Error('No edited image available');
+
     // Update the user's profile photo
-    await slackService.updateProfilePhoto(client, userId, teamId, editedImageUrl);
+    await slackService.updateProfilePhoto(client, userId, teamId, sourceUrl);
     
     // Show success message in current context (no DM required)
     if (body.response_url) {
@@ -673,14 +701,24 @@ async function handleReferenceImageSubmission({ ack, body, view, client }) {
       text: { type: 'plain_text', text: '✅ Update Profile Picture' },
       style: 'primary',
       action_id: 'approve_edit',
-      value: JSON.stringify({ editedImage: editedImageResult.localUrl, prompt: originalPrompt })
+      value: JSON.stringify({
+        editedImage: editedImageResult.localUrl || null,
+        slackFileId: editedImageResult.fileId || editedImageResult.slackFile?.id || null,
+        slackUrl: editedImageResult.slackFile?.url_private_download || null,
+        prompt: originalPrompt
+      })
     });
     actionElementsRef.push({
       type: 'button',
       text: { type: 'plain_text', text: '📤 Share…' },
       action_id: 'open_share_modal',
       value: JSON.stringify({
-        results: [{ localUrl: editedImageResult.localUrl, filename: imageData.filename || 'Edited Image' }],
+        results: [{
+          localUrl: editedImageResult.localUrl || null,
+          fileId: editedImageResult.fileId || editedImageResult.slackFile?.id || null,
+          slackUrl: editedImageResult.slackFile?.url_private_download || null,
+          filename: imageData.filename || 'Edited Image.jpg'
+        }],
         prompt: originalPrompt
       })
     });
@@ -732,16 +770,20 @@ async function handleApproveExtended({ ack, body, client }) {
   const teamId = body.team.id;
   let editedImageUrl;
   let prompt;
+  let slackFileId = null;
+  let slackUrl = null;
   let referenceCount = 0;
   let useProfilePhoto = false;
 
   try {
     // Parse the JSON value that contains editedImage, prompt, and reference count
     const actionValue = JSON.parse(body.actions[0].value);
-    editedImageUrl = actionValue.editedImage;
+    editedImageUrl = actionValue.editedImage || null;
     prompt = actionValue.prompt;
     referenceCount = actionValue.referenceCount || 0;
     useProfilePhoto = actionValue.useProfilePhoto || false;
+    slackFileId = actionValue.slackFileId || null;
+    slackUrl = actionValue.slackUrl || null;
   } catch (parseError) {
     console.error('Failed to parse extended action value:', parseError);
     return;
@@ -751,8 +793,18 @@ async function handleApproveExtended({ ack, body, client }) {
   try {
     if (!isProduction) console.log(`Updating profile photo for user ${userId} (extended)`);
     
+    // Resolve best URL
+    let sourceUrl = slackUrl || editedImageUrl;
+    if (!sourceUrl && slackFileId) {
+      try {
+        const info = await client.files.info({ file: slackFileId });
+        sourceUrl = info?.file?.url_private_download || info?.file?.url_private;
+      } catch (_) {}
+    }
+    if (!sourceUrl) throw new Error('No edited image available');
+
     // Update the user's profile photo
-    await slackService.updateProfilePhoto(client, userId, teamId, editedImageUrl);
+    await slackService.updateProfilePhoto(client, userId, teamId, sourceUrl);
     
     // Close modal and show success message
     await client.views.update({
@@ -1049,7 +1101,7 @@ async function handleMessageShortcut({ ack, shortcut, body, client }) {
       ].filter(Boolean);
       const successBlocks = [ buildSuccessHeader(prompt, meta) ];
 
-      // Add the edited image
+      // Add the edited image when an external URL exists
       if (editedResult.localUrl) {
         successBlocks.push({
           type: 'image',
@@ -1068,15 +1120,14 @@ async function handleMessageShortcut({ ack, shortcut, body, client }) {
         elements: [
           {
             type: 'button',
-            text: {
-              type: 'plain_text',
-              text: '✅ Set as Profile Picture'
-            },
+            text: { type: 'plain_text', text: '✅ Set as Profile Picture' },
             style: 'primary',
             action_id: 'approve_edit_message',
-            value: JSON.stringify({ 
-              editedImage: editedResult.localUrl, 
-              prompt: prompt 
+            value: JSON.stringify({
+              editedImage: editedResult.localUrl || null,
+              slackFileId: editedResult.fileId || editedResult.slackFile?.id || null,
+              slackUrl: editedResult.slackFile?.url_private_download || null,
+              prompt: prompt
             })
           },
           {
@@ -1207,6 +1258,50 @@ async function ensureBotInChannel(client, channelId) {
     }
   } catch (e) {
     console.log('Join attempt skipped/failed:', e.data?.error || e.message);
+  }
+}
+
+// Resolve a safe destination channel for sharing.
+// - For public channels (C*): attempt join
+// - For private (G*): verify membership; if not a member, return null with reason
+// - For DMs or missing: open DM with the user
+async function ensureDestinationChannelId(client, desiredChannelId, userId) {
+  try {
+    if (!desiredChannelId || typeof desiredChannelId !== 'string') {
+      const im = await client.conversations.open({ users: userId });
+      return { channelId: im.channel?.id, reason: 'opened_dm' };
+    }
+    if (desiredChannelId.startsWith('D')) {
+      // Ensure DM exists
+      const im = await client.conversations.open({ users: userId });
+      return { channelId: im.channel?.id, reason: 'dm' };
+    }
+    if (desiredChannelId.startsWith('C')) {
+      try { await ensureBotInChannel(client, desiredChannelId); } catch (_) {}
+      return { channelId: desiredChannelId, reason: 'public' };
+    }
+    if (desiredChannelId.startsWith('G')) {
+      try {
+        const info = await client.conversations.info({ channel: desiredChannelId });
+        const isMember = info?.channel?.is_member === true || info?.channel?.is_member === 'true';
+        if (!isMember) {
+          return { channelId: null, reason: 'not_in_private' };
+        }
+        return { channelId: desiredChannelId, reason: 'private' };
+      } catch (e) {
+        return { channelId: null, reason: e.data?.error || 'channel_not_found' };
+      }
+    }
+    // Fallback: try as-is
+    return { channelId: desiredChannelId, reason: 'unknown' };
+  } catch (e) {
+    console.log('ensureDestinationChannelId error:', e.message);
+    try {
+      const im = await client.conversations.open({ users: userId });
+      return { channelId: im.channel?.id, reason: 'fallback_dm' };
+    } catch (_) {
+      return { channelId: null, reason: 'failed_open_dm' };
+    }
   }
 }
 
@@ -1456,7 +1551,9 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
               style: 'primary',
               action_id: 'approve_edit_message',
               value: JSON.stringify({
-                editedImage: successful[0].result.localUrl,
+                editedImage: successful[0].result.localUrl || null,
+                slackFileId: successful[0].result.fileId || successful[0].result.slackFile?.id || null,
+                slackUrl: successful[0].result.slackFile?.url_private_download || null,
                 prompt: promptValue
               })
             });
@@ -1471,8 +1568,9 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
             action_id: 'open_share_modal',
             value: JSON.stringify({
               results: successful.map(result => ({
-                localUrl: result.result.localUrl,
-                fileId: result.result.fileId,
+                localUrl: result.result.localUrl || null,
+                fileId: result.result.fileId || result.result.slackFile?.id || null,
+                slackUrl: result.result.slackFile?.url_private_download || null,
                 filename: result.originalFile.name
               })),
               prompt: promptValue,
@@ -2053,19 +2151,26 @@ async function handleShareToChannelSubmission({ ack, body, client }) {
   const selectedChannel = body.view.state.values?.channel_select?.selected_channel?.selected_conversation || defaultChannel;
   const caption = body.view.state.values.caption_input?.share_caption?.value?.trim();
 
-  const isPublic = typeof selectedChannel === 'string' && selectedChannel.startsWith('C');
   try {
-    if (isPublic) {
-      await ensureBotInChannel(client, selectedChannel);
+    // Resolve destination (may fallback to DM)
+    const dest = await ensureDestinationChannelId(client, selectedChannel, userId);
+    let destinationChannelId = dest.channelId;
+    let notifyFallback = false;
+    if (!destinationChannelId) {
+      // Fallback to DM with a reason note
+      const im = await client.conversations.open({ users: userId });
+      destinationChannelId = im.channel?.id;
+      notifyFallback = true;
     }
 
     // Function: upload a buffer as a Slack file to the selected channel
     async function uploadBufferAsFile(buffer, filename, initial_comment = undefined) {
+      const name = (filename && /\.(jpg|jpeg|png|gif|webp)$/i.test(filename)) ? filename : `${(filename || 'edited_image').replace(/\.+$/,'')}.jpg`;
       try {
         await client.files.uploadV2({
-          channel_id: selectedChannel,
+          channel_id: destinationChannelId,
           file: buffer,
-          filename: filename || 'edited_image.jpg',
+          filename: name,
           initial_comment
         });
         return true;
@@ -2086,28 +2191,40 @@ async function handleShareToChannelSubmission({ ack, body, client }) {
       if (r.fileId) {
         // We already have a Slack file; share it into the destination channel
         try {
-          await client.files.share({ file: r.fileId, channels: selectedChannel, initial_comment });
+          await client.files.share({ file: r.fileId, channels: destinationChannelId, initial_comment });
           continue;
         } catch (shareErr) {
           console.log('files.share failed, falling back to upload:', shareErr.data?.error || shareErr.message);
         }
       }
 
-      // Fallback: download from our hosted URL and upload as Slack file
+      // Fallback: download from Slack/private URL or legacy hosted URL and upload as Slack file
       try {
-        const resp = await axios.get(r.localUrl, { responseType: 'arraybuffer' });
+        const url = r.slackUrl || r.localUrl;
+        const headers = { 'User-Agent': 'Boo/1.0' };
+        try {
+          const u = new URL(url);
+          if (u.hostname.includes('slack.com') && process.env.SLACK_BOT_TOKEN) {
+            headers['Authorization'] = `Bearer ${process.env.SLACK_BOT_TOKEN}`;
+          }
+        } catch (_) {}
+        const resp = await axios.get(url, { responseType: 'arraybuffer', headers });
         const ok = await uploadBufferAsFile(Buffer.from(resp.data), filename, initial_comment);
         if (!ok) {
           console.log('Upload fallback failed for', filename);
         }
       } catch (dlErr) {
-        console.log('Download failed for', r.localUrl, dlErr.message);
+        console.log('Download failed for', (r.slackUrl || r.localUrl), dlErr.message);
       }
     }
 
     // Confirmation to user
     try {
-      await client.chat.postEphemeral({ channel: selectedChannel, user: userId, text: '✅ Shared your image(s) as native Slack files.' });
+      let text = '✅ Shared your image(s) as native Slack files.';
+      if (notifyFallback && selectedChannel) {
+        text += ' (Could not access selected conversation; shared via DM instead.)';
+      }
+      await client.chat.postEphemeral({ channel: destinationChannelId, user: userId, text });
     } catch (_) {}
   } catch (error) {
     console.error('Error sharing to channel from modal:', error);

@@ -106,31 +106,39 @@ async function externalUploadAsSlackFile(client, imageBuffer, filename, userId) 
 
 // Helper to call Gemini with retries and model fallbacks
 function thresholdFromEnv(value) {
-  if (!value) return null;
-  const v = String(value).toLowerCase();
-  if (v === 'none') return 'BLOCK_NONE';
-  if (v === 'low' || v === 'only_high') return 'BLOCK_ONLY_HIGH';
-  if (v === 'medium' || v === 'med') return 'BLOCK_MEDIUM_AND_ABOVE';
+  if (value === undefined || value === null) return null;
+  const v = String(value).trim().toLowerCase();
+  // Friendly synonyms
+  if (['none', 'off', 'disabled', 'disable', 'lenient', 'lowest', 'no_filter', 'no-filter'].includes(v)) return 'BLOCK_NONE';
+  if (['only_high', 'only-high', 'onlyhigh'].includes(v)) return 'BLOCK_ONLY_HIGH';
+  if (['low', 'strict', 'lowest_allow', 'lowest-allow'].includes(v)) return 'BLOCK_LOW_AND_ABOVE';
+  if (['medium', 'med'].includes(v)) return 'BLOCK_MEDIUM_AND_ABOVE';
   if (v === 'high') return 'BLOCK_HIGH_AND_ABOVE';
+  if (['default', 'sdk_default', 'sdk-default'].includes(v)) return '__SDK_DEFAULT__';
   return null;
 }
 
 function getSafetySettingsFromEnv() {
-  const base = thresholdFromEnv(process.env.GEMINI_SAFETY);
-  const perCat = {
+  // Base preference; default to no moderation (BLOCK_NONE) unless explicitly set to SDK default
+  const baseRaw = thresholdFromEnv(process.env.GEMINI_SAFETY);
+  const perCatRaw = {
     HARM_CATEGORY_VIOLENCE: thresholdFromEnv(process.env.GEMINI_SAFETY_VIOLENCE),
     HARM_CATEGORY_SEXUAL: thresholdFromEnv(process.env.GEMINI_SAFETY_SEXUAL),
     HARM_CATEGORY_HATE_SPEECH: thresholdFromEnv(process.env.GEMINI_SAFETY_HATE),
     HARM_CATEGORY_HARASSMENT: thresholdFromEnv(process.env.GEMINI_SAFETY_HARASSMENT),
     HARM_CATEGORY_DANGEROUS_CONTENT: thresholdFromEnv(process.env.GEMINI_SAFETY_DANGEROUS)
   };
-  const cats = Object.keys(perCat);
-  const settings = [];
-  for (const cat of cats) {
-    const t = perCat[cat] || base;
-    if (t) settings.push({ category: cat, threshold: t });
+
+  // If any setting explicitly requests SDK defaults, return null (let server decide)
+  if (baseRaw === '__SDK_DEFAULT__' || Object.values(perCatRaw).includes('__SDK_DEFAULT__')) {
+    return null;
   }
-  return settings.length ? settings : null;
+
+  // Default base is BLOCK_NONE for leniency
+  const base = baseRaw || 'BLOCK_NONE';
+  const cats = Object.keys(perCatRaw);
+  const settings = cats.map(cat => ({ category: cat, threshold: perCatRaw[cat] || base }));
+  return settings;
 }
 
 async function callGeminiWithRetry(ai, contentParts, isProduction) {
@@ -233,77 +241,58 @@ const handleApiResponse = async (response, context = 'edit', client, userId, cha
     const imageBuffer = Buffer.from(data, 'base64');
     const filename = `edited_${Date.now()}.jpg`;
     
-    // Prefer external unshared upload first to avoid auto-creating a DM/channel message
-      try {
-        const extFirst = await externalUploadAsSlackFile(client, imageBuffer, filename, userId);
-        if (extFirst.ok) {
-          if (!isProduction) console.log(`External upload (unshared) created Slack file: ${extFirst.file.id}`);
-          return {
-            fileId: extFirst.file.id,
-            localUrl: await fileServer.saveTemporaryFile(imageBuffer, filename),
-            slackFile: extFirst.file,
-            origin: 'external'
-          };
-        }
-
-        // Open an IM channel with the user to obtain a valid D* channel id
-        let dmChannelId;
-        try {
-          const im = await client.conversations.open({ users: userId });
-          dmChannelId = im.channel?.id;
-          if (!dmChannelId) throw new Error('IM_OPEN_NO_CHANNEL');
-        } catch (openErr) {
-          logSlackError('conversations.open', openErr);
-          throw openErr;
-        }
-        const dmUpload = await client.files.uploadV2({
-          channel_id: dmChannelId,
-          file: imageBuffer,
-          filename: filename,
-          title: `AI Edited Profile Photo - ${context}`,
-          alt_txt: `AI edited profile photo using prompt: ${context}`
-        });
-        const uploaded = dmUpload?.files?.[0] || dmUpload?.file || null;
-        if (!uploaded?.id) {
-          throw new Error('UPLOAD_RETURNED_NO_FILE_ID');
-        }
-        if (!isProduction) console.log(`Uploaded image to user's DM: ${uploaded.id}`);
-        // Enrich with file info for stable permalink
-        let enriched = uploaded;
-        try {
-          const info = await client.files.info({ file: uploaded.id });
-          if (info?.file) enriched = { ...uploaded, ...info.file };
-        } catch (_) {}
+    // Prefer external unshared upload first to keep Slack as source of truth
+    try {
+      const extFirst = await externalUploadAsSlackFile(client, imageBuffer, filename, userId);
+      if (extFirst.ok) {
+        if (!isProduction) console.log(`External upload (unshared) created Slack file: ${extFirst.file.id}`);
         return {
-          fileId: uploaded.id,
-          localUrl: await fileServer.saveTemporaryFile(imageBuffer, filename),
-          slackFile: enriched,
-          origin: 'dm'
-        };
-    } catch (dmError) {
-      console.error('DM upload failed, trying external upload');
-      logSlackError('files.uploadV2(dm)', dmError);
-      // Third attempt: External upload URL flow with Content-Length + compression retry
-      const ext = await externalUploadAsSlackFile(client, imageBuffer, filename, userId);
-      if (ext.ok) {
-        if (!isProduction) console.log(`External upload completed as Slack file: ${ext.file.id}`);
-        // Try to enrich with file info
-        let enriched = ext.file;
-        try {
-          const info = await client.files.info({ file: ext.file.id });
-          if (info?.file) enriched = { ...ext.file, ...info.file };
-        } catch (_) {}
-        return {
-          fileId: ext.file.id,
-          localUrl: await fileServer.saveTemporaryFile(imageBuffer, filename),
-          slackFile: enriched,
+          fileId: extFirst.file.id,
+          localUrl: null, // No temp URL; Slack files-first
+          slackFile: extFirst.file,
           origin: 'external'
         };
       }
-      console.error('External upload failed, using local fallback');
-      const fileUrl = await fileServer.saveTemporaryFile(imageBuffer, filename);
-      if (!isProduction) console.log(`Saved edited image locally: ${fileUrl}`);
-      return { fileId: null, localUrl: fileUrl, slackFile: null, origin: 'fallback' };
+
+      // Fallback: upload into a DM with the user (still Slack-hosted)
+      let dmChannelId;
+      try {
+        const im = await client.conversations.open({ users: userId });
+        dmChannelId = im.channel?.id;
+        if (!dmChannelId) throw new Error('IM_OPEN_NO_CHANNEL');
+      } catch (openErr) {
+        logSlackError('conversations.open', openErr);
+        throw openErr;
+      }
+      const dmUpload = await client.files.uploadV2({
+        channel_id: dmChannelId,
+        file: imageBuffer,
+        filename,
+        title: `AI Edited Profile Photo - ${context}`,
+        alt_txt: `AI edited profile photo using prompt: ${context}`
+      });
+      const uploaded = dmUpload?.files?.[0] || dmUpload?.file || null;
+      if (!uploaded?.id) {
+        throw new Error('UPLOAD_RETURNED_NO_FILE_ID');
+      }
+      if (!isProduction) console.log(`Uploaded image to user's DM: ${uploaded.id}`);
+      // Enrich with file info for stable permalink
+      let enriched = uploaded;
+      try {
+        const info = await client.files.info({ file: uploaded.id });
+        if (info?.file) enriched = { ...uploaded, ...info.file };
+      } catch (_) {}
+      return {
+        fileId: uploaded.id,
+        localUrl: null,
+        slackFile: enriched,
+        origin: 'dm'
+      };
+    } catch (dmError) {
+      console.error('Slack upload failed');
+      logSlackError('files.uploadV2(dm/external)', dmError);
+      // Final fallback (no temp URLs anymore)
+      throw new Error('GENERATION_FAILED');
     }
   }
 
@@ -382,9 +371,9 @@ async function editImage(imageUrl, prompt, client, userId, referenceImageUrl = n
     // Create a prompt that includes reference image instructions if available
     let editPrompt;
     if (referenceImagePart) {
-      editPrompt = `Edit the first image using the style/elements from the second reference image: ${prompt}. Keep the edit natural and realistic. Apply the visual style, colors, or objects from the reference image to the first image.`;
+      editPrompt = `${prompt}`;
     } else {
-      editPrompt = `Edit this image: ${prompt}. Keep the edit natural and realistic.`;
+      editPrompt = `${prompt}`;
     }
 
     const textPart = { text: editPrompt };
@@ -399,17 +388,29 @@ async function editImage(imageUrl, prompt, client, userId, referenceImageUrl = n
     }
     
     // Prepare content parts for API call
-    const contentParts = [originalImagePart];
-    if (referenceImagePart) {
-      contentParts.push(referenceImagePart);
+    const baseParts = [originalImagePart];
+    if (referenceImagePart) baseParts.push(referenceImagePart);
+
+    // Helper to attempt generation with provided text
+    const attempt = async (text) => {
+      const parts = [...baseParts, { text }];
+      const response = await callGeminiWithRetry(ai, parts, isProduction);
+      if (!isProduction) console.log('Received response from Gemini API');
+      return handleApiResponse(response, 'edit', client, userId, channelId);
+    };
+
+    // First attempt
+    try {
+      return await attempt(editPrompt);
+    } catch (e) {
+      // Single safe retry for IMAGE_SAFETY
+      if (e && e.message === 'GENERATION_FAILED' && (e.reason === 'IMAGE_SAFETY' || /IMAGE_SAFETY/.test(String(e.reason)))) {
+        const safePrompt = `${editPrompt} Please ensure the result is family-friendly, workplace-safe, fully clothed, and contains no gore, weapons, or offensive imagery.`;
+        if (!isProduction) console.warn('Retrying with safe prompt due to IMAGE_SAFETY');
+        return await attempt(safePrompt);
+      }
+      throw e;
     }
-    contentParts.push(textPart);
-    
-    // Call Gemini with retries + fallbacks
-    const response = await callGeminiWithRetry(ai, contentParts, isProduction);
-    
-    if (!isProduction) console.log('Received response from Gemini API');
-    return await handleApiResponse(response, 'edit', client, userId, channelId);
 
   } catch (error) {
     console.error('editImage error:', error.constructor.name, error.message);
@@ -455,7 +456,7 @@ async function editImageGroup(imageUrls, prompt, client, userId, channelId = nul
       }
     }
 
-    contentParts.push({ text: `Edit these images: ${prompt}. Keep the edit natural and realistic.` });
+    contentParts.push({ text: `${prompt}` });
 
     const response = await callGeminiWithRetry(ai, contentParts, isProduction);
     if (!isProduction) console.log('Received group response from Gemini API');
