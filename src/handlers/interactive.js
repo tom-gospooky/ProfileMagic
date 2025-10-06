@@ -1408,6 +1408,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
         await axios.post(responseUrl, {
           response_type: 'ephemeral',
           text,
+          replace_original: true,
           ...(threadTs ? { thread_ts: threadTs } : {})
         });
         usedResponseUrl = true;
@@ -1539,107 +1540,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
           });
         }
 
-        // Add standardized action buttons for successful edits
-        if (successful.length > 0) {
-          const actionElements = [];
-
-          // Update Profile Picture (only when one result exists)
-          if (successful.length === 1) {
-            actionElements.push({
-              type: 'button',
-              text: { type: 'plain_text', text: '✅ Update Profile Picture' },
-              style: 'primary',
-              action_id: 'approve_edit_message',
-              value: JSON.stringify({
-                editedImage: successful[0].result.localUrl || null,
-                slackFileId: successful[0].result.fileId || successful[0].result.slackFile?.id || null,
-                slackUrl: successful[0].result.slackFile?.url_private_download || null,
-                prompt: promptValue
-              })
-            });
-          }
-
-          // Removed Post option by request
-
-          // Share… (open modal with channel selector)
-          actionElements.push({
-            type: 'button',
-            text: { type: 'plain_text', text: '📤 Share…' },
-            action_id: 'open_share_modal',
-            value: JSON.stringify({
-              results: successful.map(result => ({
-                localUrl: result.result.localUrl || null,
-                fileId: result.result.fileId || result.result.slackFile?.id || null,
-                slackUrl: result.result.slackFile?.url_private_download || null,
-                filename: result.originalFile.name
-              })),
-              prompt: promptValue,
-              channelId: channelId
-            })
-          });
-
-          // Advanced
-          actionElements.push({
-            type: 'button',
-            text: { type: 'plain_text', text: '⚙️ Advanced' },
-            action_id: 'open_advanced_modal',
-            value: JSON.stringify({ prompt: promptValue })
-          });
-
-          // Retry (process same settings again)
-          const profileSelected = Array.isArray(useProfileRef) && useProfileRef.length > 0;
-          actionElements.push({
-            type: 'button',
-            text: { type: 'plain_text', text: '🔄 Retry' },
-            action_id: 'retry_same',
-            value: JSON.stringify({
-              prompt: promptValue,
-              channelId: channelId,
-              files: (uploadedFiles || []).map(f => ({ id: f.id, name: f.name })),
-              useProfileRef: !!profileSelected
-            })
-          });
-
-          // // Add "Retry" button (always show since results are initially private)
-          // actionElements.push({
-          //   type: 'button',
-          //   text: { type: 'plain_text', text: '📢 Retry' },
-          //   action_id: 'send_to_channel',
-          //   value: JSON.stringify({
-          //     results: successful.map(result => ({
-          //       localUrl: result.result.localUrl,
-          //       fileId: result.result.fileId,
-          //       filename: result.originalFile.name
-          //     })),
-          //     prompt: promptValue,
-          //     channelId: channelId
-          //   })
-          // });
-
-          // // Add a privacy hint context making it clear this preview is private
-          // resultBlocks.push({
-          //   type: 'context',
-          //   elements: [
-          //     {
-          //       type: 'mrkdwn',
-          //       text: '🔒 *Private preview* — only you can see this. Click “Retry” to share.'
-          //     }
-          //   ]
-          // });
-
-          resultBlocks.push({
-            type: 'actions',
-            elements: actionElements
-          });
-
-          // Dev-only: show where upload landed
-          if (process.env.NODE_ENV !== 'production' && successful[0]?.result?.origin) {
-            resultBlocks.push({
-              type: 'context',
-              elements: [ { type: 'mrkdwn', text: `🛠️ Debug: uploaded via *${successful[0].result.origin}*` } ]
-            });
-          }
-        }
+        // Actions already added via buildStandardActions above; avoid duplicates
 
         // Update the processing message with results (handle response_url vs chat.update)
         const successText = `✅ Edit complete!`;
@@ -1650,6 +1551,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
               response_type: 'ephemeral',
               text: successText,
               blocks: resultBlocks,
+              replace_original: true,
               ...(threadTs ? { thread_ts: threadTs } : {})
             });
             console.log('✅ Updated ephemeral via response_url');
@@ -1699,6 +1601,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
               response_type: 'ephemeral',
               text: errorMessage,
               blocks: errorBlocks,
+              replace_original: true,
               ...(threadTs ? { thread_ts: threadTs } : {})
             });
           } catch (e) {

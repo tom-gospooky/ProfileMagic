@@ -196,9 +196,8 @@ app.use((req, res) => res.status(404).json({ error: 'Not found', path: req.path 
 
 // Simple error handler so we don't crash the process
 app.use((err, req, res, next) => {
-  // Downgrade ENOENT to 404 and log as warning to reduce noise
+  // Quiet 404 for missing files to reduce noisy logs after redeploys
   if (err && (err.code === 'ENOENT' || /ENOENT/.test(String(err)))) {
-    console.warn('File not found (ENOENT):', req.path);
     return res.status(404).json({ error: 'File not found' });
   }
   console.error('Server error:', err);
