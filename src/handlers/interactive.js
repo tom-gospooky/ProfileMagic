@@ -2152,83 +2152,89 @@ async function handleShareToChannelSubmission({ ack, body, client }) {
   const caption = body.view.state.values.caption_input?.share_caption?.value?.trim();
 
   try {
-    // Resolve destination (may fallback to DM)
-    const dest = await ensureDestinationChannelId(client, selectedChannel, userId);
-    let destinationChannelId = dest.channelId;
+    // Use the user's token to post as the user
+    const userToken = userTokens.getUserToken(userId, teamId);
+    if (!userToken) {
+      try {
+        const { getOAuthUrl } = require('../services/fileServer');
+        const authUrl = getOAuthUrl(userId, teamId);
+        await client.chat.postEphemeral({
+          channel: body.user.id,
+          user: userId,
+          text: '🔐 Please authorize Boo to share files as you.',
+          blocks: [
+            { type: 'section', text: { type: 'mrkdwn', text: '*Authorization Required*\nBoo needs permission to share images as you.' } },
+            { type: 'actions', elements: [ { type: 'button', text: { type: 'plain_text', text: '🔗 Authorize Boo' }, url: authUrl, style: 'primary' } ] }
+          ]
+        });
+      } catch (_) {}
+      return;
+    }
+
+    const { WebClient } = require('@slack/web-api');
+    const userClient = new WebClient(userToken);
+
+    // Resolve destination channel: selection (if member) else DM
+    let destinationChannelId = null;
     let notifyFallback = false;
+    if (typeof selectedChannel === 'string' && selectedChannel.length > 0) {
+      if (selectedChannel.startsWith('D')) {
+        destinationChannelId = selectedChannel;
+      } else if (selectedChannel.startsWith('C') || selectedChannel.startsWith('G')) {
+        try {
+          const info = await userClient.conversations.info({ channel: selectedChannel });
+          if (info?.channel?.is_member) destinationChannelId = selectedChannel;
+        } catch (e) {
+          console.log('User conversations.info failed:', e.data?.error || e.message);
+        }
+      }
+    }
     if (!destinationChannelId) {
-      // Fallback to DM with a reason note
       const im = await client.conversations.open({ users: userId });
       destinationChannelId = im.channel?.id;
       notifyFallback = true;
     }
 
-    // Function: upload a buffer as a Slack file to the selected channel
+    // Upload helper (as user)
     async function uploadBufferAsFile(buffer, filename, initial_comment = undefined) {
       const name = (filename && /\.(jpg|jpeg|png|gif|webp)$/i.test(filename)) ? filename : `${(filename || 'edited_image').replace(/\.+$/,'')}.jpg`;
       try {
-        await client.files.uploadV2({
-          channel_id: destinationChannelId,
-          file: buffer,
-          filename: name,
-          initial_comment
-        });
+        await userClient.files.uploadV2({ channel_id: destinationChannelId, file: buffer, filename: name, initial_comment });
         return true;
       } catch (e) {
-        console.log('files.uploadV2 failed:', e.data?.error || e.message);
+        console.log('user files.uploadV2 failed:', e.data?.error || e.message);
         return false;
       }
     }
 
-    // Share each result natively
+    // Share: download from our hosted URL and upload
     const axios = require('axios');
     let firstShared = true;
     for (const r of results || []) {
       const filename = r.filename || 'edited_image.jpg';
       const initial_comment = firstShared && caption ? caption : undefined;
       firstShared = false;
-
-      if (r.fileId) {
-        // We already have a Slack file; share it into the destination channel
-        try {
-          await client.files.share({ file: r.fileId, channels: destinationChannelId, initial_comment });
-          continue;
-        } catch (shareErr) {
-          console.log('files.share failed, falling back to upload:', shareErr.data?.error || shareErr.message);
-        }
-      }
-
-      // Fallback: download from Slack/private URL or legacy hosted URL and upload as Slack file
+      const url = r.localUrl || r.slackUrl;
+      if (!url) continue;
       try {
-        const url = r.slackUrl || r.localUrl;
-        const headers = { 'User-Agent': 'Boo/1.0' };
-        try {
-          const u = new URL(url);
-          if (u.hostname.includes('slack.com') && process.env.SLACK_BOT_TOKEN) {
-            headers['Authorization'] = `Bearer ${process.env.SLACK_BOT_TOKEN}`;
-          }
-        } catch (_) {}
-        const resp = await axios.get(url, { responseType: 'arraybuffer', headers });
+        const resp = await axios.get(url, { responseType: 'arraybuffer' });
         const ok = await uploadBufferAsFile(Buffer.from(resp.data), filename, initial_comment);
-        if (!ok) {
-          console.log('Upload fallback failed for', filename);
-        }
+        if (!ok) console.log('Upload failed for', filename);
       } catch (dlErr) {
-        console.log('Download failed for', (r.slackUrl || r.localUrl), dlErr.message);
+        console.log('Download failed for', url, dlErr.message);
       }
     }
 
     // Confirmation to user
     try {
       let text = '✅ Shared your image(s) as native Slack files.';
-      if (notifyFallback && selectedChannel) {
-        text += ' (Could not access selected conversation; shared via DM instead.)';
-      }
+      if (notifyFallback && selectedChannel) text += ' (Could not access selected conversation; shared via DM instead.)';
       await client.chat.postEphemeral({ channel: destinationChannelId, user: userId, text });
     } catch (_) {}
+
   } catch (error) {
     console.error('Error sharing to channel from modal:', error);
-    await client.chat.postMessage({ channel: userId, text: '❌ Could not share to the selected channel. If it is private, please invite the app and try again.' });
+    await client.chat.postMessage({ channel: userId, text: '❌ Could not share to the selected channel. Please ensure you are a member and try again.' });
   }
 }
 

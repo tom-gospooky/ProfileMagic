@@ -236,83 +236,12 @@ const handleApiResponse = async (response, context = 'edit', client, userId, cha
   if (imagePartFromResponse?.inlineData) {
     const { mimeType, data } = imagePartFromResponse.inlineData;
     if (!isProduction) console.log(`Received image data (${mimeType}) for ${context}`);
-    
-    // Convert base64 to buffer
+    // Convert base64 to buffer and save as a temporary file served by our file server
     const imageBuffer = Buffer.from(data, 'base64');
     const filename = `edited_${Date.now()}.jpg`;
-    
-    // Prefer external unshared upload first to keep Slack as source of truth
-    try {
-      const extFirst = await externalUploadAsSlackFile(client, imageBuffer, filename, userId);
-      if (extFirst.ok) {
-        if (!isProduction) console.log(`External upload (unshared) created Slack file: ${extFirst.file.id}`);
-        // Try to create a public URL for inline previews
-        let sharedPublicUrl = null;
-        try {
-          const shared = await client.files.sharedPublicURL({ file: extFirst.file.id });
-          sharedPublicUrl = shared?.file?.permalink_public || null;
-        } catch (_) {}
-        // Enrich with file info
-        let enriched = extFirst.file;
-        try {
-          const info = await client.files.info({ file: extFirst.file.id });
-          if (info?.file) enriched = { ...enriched, ...info.file };
-          if (!sharedPublicUrl && info?.file?.permalink_public) sharedPublicUrl = info.file.permalink_public;
-        } catch (_) {}
-        return {
-          fileId: extFirst.file.id,
-          localUrl: sharedPublicUrl, // Use Slack public link for block image when available
-          slackFile: enriched,
-          origin: 'external'
-        };
-      }
-
-      // Fallback: upload into a DM with the user (still Slack-hosted)
-      let dmChannelId;
-      try {
-        const im = await client.conversations.open({ users: userId });
-        dmChannelId = im.channel?.id;
-        if (!dmChannelId) throw new Error('IM_OPEN_NO_CHANNEL');
-      } catch (openErr) {
-        logSlackError('conversations.open', openErr);
-        throw openErr;
-      }
-      const dmUpload = await client.files.uploadV2({
-        channel_id: dmChannelId,
-        file: imageBuffer,
-        filename,
-        title: `AI Edited Profile Photo - ${context}`,
-        alt_txt: `AI edited profile photo using prompt: ${context}`
-      });
-      const uploaded = dmUpload?.files?.[0] || dmUpload?.file || null;
-      if (!uploaded?.id) {
-        throw new Error('UPLOAD_RETURNED_NO_FILE_ID');
-      }
-      if (!isProduction) console.log(`Uploaded image to user's DM: ${uploaded.id}`);
-      // Enrich with file info for stable permalink
-      let enriched = uploaded;
-      let sharedPublicUrl = null;
-      try {
-        const shared = await client.files.sharedPublicURL({ file: uploaded.id });
-        sharedPublicUrl = shared?.file?.permalink_public || null;
-      } catch (_) {}
-      try {
-        const info = await client.files.info({ file: uploaded.id });
-        if (info?.file) enriched = { ...uploaded, ...info.file };
-        if (!sharedPublicUrl && info?.file?.permalink_public) sharedPublicUrl = info.file.permalink_public;
-      } catch (_) {}
-      return {
-        fileId: uploaded.id,
-        localUrl: sharedPublicUrl, // Public URL for rendering if permitted
-        slackFile: enriched,
-        origin: 'dm'
-      };
-    } catch (dmError) {
-      console.error('Slack upload failed');
-      logSlackError('files.uploadV2(dm/external)', dmError);
-      // Final fallback (no temp URLs anymore)
-      throw new Error('GENERATION_FAILED');
-    }
+    const fileUrl = await fileServer.saveTemporaryFile(imageBuffer, filename);
+    if (!isProduction) console.log(`Saved edited image locally: ${fileUrl}`);
+    return { fileId: null, localUrl: fileUrl, slackFile: null, origin: 'local' };
   }
 
   // If no image, check for other reasons
