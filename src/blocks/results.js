@@ -44,7 +44,7 @@ function buildStandardActions({ results, prompt, channelId, approveActionId = 'a
   // Share… (open modal with channel selector)
   actions.push({
     type: 'button',
-    text: { type: 'plain_text', text: '📤 Share…' },
+    text: { type: 'plain_text', text: '🔥 Share…' },
     action_id: 'open_share_modal',
     value: JSON.stringify({ results: simple, prompt, channelId })
   });

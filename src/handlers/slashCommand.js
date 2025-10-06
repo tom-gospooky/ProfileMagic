@@ -93,17 +93,8 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
       const editedImageResult = await imageService.editImage(currentPhoto, prompt, client, userId);
       
       // Send single response with unified layout (no before/after)
-      let successText = `✅ *Edit complete!*`;
-      
-      const responseBlocks = [
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: successText
-          }
-        }
-      ];
+      const { buildSuccessHeader } = require('../blocks/common');
+      const responseBlocks = [ buildSuccessHeader(prompt) ];
 
       // Add edited image (use hosted URL for reliability)
       if (editedImageResult.localUrl) {
@@ -130,7 +121,7 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
 
       // Send single comprehensive response
       await respond({
-        text: `✅ *Edit complete!*\n\n*Prompt used:* "${prompt}"`,
+        text: '✅ Edit complete!',
         response_type: 'ephemeral',
         blocks: responseBlocks
       });
@@ -485,15 +476,8 @@ async function showPreviewModal(client, triggerId, originalImage, editedImage, p
   // Check if editedImage is a localhost URL
   const isLocalhost = editedImage.includes('localhost') || editedImage.includes('127.0.0.1');
   
-  const blocks = [
-    {
-      type: 'section',
-      text: {
-        type: 'mrkdwn',
-        text: `*✅ Edit complete!*\n\n*Prompt used:* "${prompt}"`
-      }
-    }
-  ];
+  const { buildSuccessHeader } = require('../blocks/common');
+  const blocks = [ buildSuccessHeader(prompt) ];
 
   // Only show edited image (no before/after)
   if (!isLocalhost) {

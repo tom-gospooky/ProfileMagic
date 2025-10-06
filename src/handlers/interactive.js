@@ -645,17 +645,9 @@ async function handleReferenceImageSubmission({ ack, body, view, client }) {
     // Process the image with reference
     const editedImageResult = await imageService.editImage(currentPhoto, originalPrompt, client, userId, url);
 
-    // Show success with new result (no before/after)
-    const successBlocks = [
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: `✅ *Image processed with reference!*\\n\\n*Prompt:* "${originalPrompt}"\\n*Reference:* ${imageData.filename}`
-        }
-      },
-      
-    ];
+    // Show success with new result (no before/after), consistent header
+    const { buildSuccessHeader } = require('../blocks/common');
+    const successBlocks = [ buildSuccessHeader(originalPrompt, [`*Reference:* ${imageData.filename}`]) ];
 
     // Add edited image with reference only
     if (editedImageResult.localUrl) {
@@ -1066,23 +1058,13 @@ async function handleMessageShortcut({ ack, shortcut, body, client }) {
         referenceImage ? referenceImage.url : null
       );
 
-      // Create success message with before/after
-      const successBlocks = [
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: `✅ *Image edited with NB shortcut!* 🎉\n\n*Prompt:* "${prompt}"\n*Source:* ${useProfilePhoto ? 'Profile photo' : imageToEdit.name}\n${referenceImage ? `*Reference:* ${referenceImage.name}` : ''}`
-          }
-        },
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: '*Result:*'
-          }
-        }
-      ];
+      // Create success message with consistent header
+      const { buildSuccessHeader } = require('../blocks/common');
+      const meta = [
+        `*Source:* ${useProfilePhoto ? 'Profile photo' : imageToEdit.name}`,
+        referenceImage ? `*Reference:* ${referenceImage.name}` : ''
+      ].filter(Boolean);
+      const successBlocks = [ buildSuccessHeader(prompt, meta) ];
 
       // Add the edited image
       if (editedResult.localUrl) {
@@ -1129,7 +1111,7 @@ async function handleMessageShortcut({ ack, shortcut, body, client }) {
       await client.chat.postEphemeral({
         channel: channelId,
         user: userId,
-        text: '✅ *Image edited with NB shortcut!*',
+        text: '✅ Edit complete!',
         blocks: successBlocks,
         thread_ts: threadTs
       });
@@ -1439,15 +1421,8 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
         const successful = results.filter(r => r.success);
         const failed = results.filter(r => !r.success);
 
-        const resultBlocks = [
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: `✅ *Transformation complete!*`
-            }
-          }
-        ];
+        const { buildSuccessHeader } = require('../blocks/common');
+        const resultBlocks = [ buildSuccessHeader(promptValue) ];
 
         // Add successful results (use public URL for reliability)
         {
@@ -1587,7 +1562,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
         }
 
         // Update the processing message with results (handle response_url vs chat.update)
-        const successText = `✅ *Generation finished!*\n*Prompt:* "${promptValue}"`;
+        const successText = `✅ Edit complete!`;
 
         if (usedResponseUrl && responseUrl) {
           try {
@@ -1755,16 +1730,9 @@ async function handleProfileOnlyModal({ ack, body, view, client }) {
     // Process the profile photo
     const result = await imageService.editImage(currentPhoto, promptValue, client, userId);
 
-    // Build result modal
-    const resultBlocks = [
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: `✅ *Profile photo edited!*\n\n*Prompt:* "${promptValue}"`
-        }
-      }
-    ];
+    // Build result modal with consistent header
+    const { buildSuccessHeader } = require('../blocks/common');
+    const resultBlocks = [ buildSuccessHeader(promptValue) ];
 
     // Add edited image
     if (result.localUrl) {
