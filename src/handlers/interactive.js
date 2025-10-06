@@ -3,23 +3,20 @@ const slackService = require('../services/slack');
 const imageService = require('../services/image');
 const axios = require('axios');
 const userTokens = require('../services/userTokens');
-const { WebClient } = require('@slack/web-api');
 const { getOAuthUrl } = require('../services/fileServer');
 const { showExtendedModal } = require('./extendedCommand');
-// const fileCache = require('../utils/fileCache'); // Currently unused
+const { buildStandardActions } = require('../blocks/results');
+const { LIMITS } = require('../constants/imageProcessing');
+const { parseActionValue, parsePrivateMetadata, extractChannelId, resolveImageSourceUrl, logBestEffortError } = require('../utils/interactiveHelpers');
+const { showAuthorizationModal, showSuccessModal, showErrorModal, showProcessingModal } = require('../utils/modalHelpers');
 
 async function handleOpenAdvancedModal({ ack, body, client }) {
   await ack();
 
   try {
-    let prompt = '';
-    try {
-      const raw = body.actions?.[0]?.value;
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        prompt = parsed.prompt || '';
-      }
-    } catch (_) {}
+    const parsed = parseActionValue(body, {});
+    const prompt = parsed.prompt || '';
+    const channelId = extractChannelId(body);
 
     const { showFileSelectionModal } = require('./slashCommand');
     await showFileSelectionModal(
@@ -27,7 +24,7 @@ async function handleOpenAdvancedModal({ ack, body, client }) {
       body.trigger_id,
       body.team.id,
       body.user.id,
-      body.channel?.id || body.container?.channel_id || body.channel_id,
+      channelId,
       prompt,
       body.response_url || null
     );
@@ -35,12 +32,15 @@ async function handleOpenAdvancedModal({ ack, body, client }) {
     console.error('Error opening advanced modal:', error.message);
     // Best-effort ephemeral guidance
     try {
+      const channelId = extractChannelId(body) || body.user.id;
       await client.chat.postEphemeral({
-        channel: body.channel?.id || body.container?.channel_id || body.channel_id || body.user.id,
+        channel: channelId,
         user: body.user.id,
         text: '❌ Could not open the advanced modal. Please run `/boo` again.'
       });
-    } catch (_) {}
+    } catch (e) {
+      logBestEffortError('postEphemeral in handleOpenAdvancedModal', e);
+    }
   }
 }
 
@@ -101,134 +101,34 @@ async function handleApprove({ ack, body, client }) {
 
   const userId = body.user.id;
   const teamId = body.team.id;
-  let editedImageUrl;
-  let prompt;
-  let slackFileId = null;
-  let slackUrl = null;
 
-  try {
-    // Parse the JSON value that contains both editedImage and prompt
-    const actionValue = JSON.parse(body.actions[0].value);
-    editedImageUrl = actionValue.editedImage || null;
-    prompt = actionValue.prompt;
-    slackFileId = actionValue.slackFileId || null;
-    slackUrl = actionValue.slackUrl || null;
-  } catch (parseError) {
-    // Fallback for old format (just the URL)
-    editedImageUrl = body.actions[0].value;
-    prompt = 'unknown';
-  }
+  const actionValue = parseActionValue(body, {});
+  const editedImageUrl = actionValue.editedImage || null;
+  const prompt = actionValue.prompt || 'unknown';
+  const slackFileId = actionValue.slackFileId || null;
+  const slackUrl = actionValue.slackUrl || null;
 
   const isProduction = process.env.NODE_ENV === 'production';
   try {
     if (!isProduction) console.log(`Updating profile photo for user ${userId}`);
-    
+
     // Resolve a usable URL
-    let sourceUrl = slackUrl || editedImageUrl;
-    if (!sourceUrl && slackFileId) {
-      try {
-        const info = await client.files.info({ file: slackFileId });
-        sourceUrl = info?.file?.url_private_download || info?.file?.url_private;
-      } catch (_) {}
-    }
-    if (!sourceUrl) throw new Error('No edited image available');
+    const sourceUrl = await resolveImageSourceUrl(client, slackUrl, editedImageUrl, slackFileId);
 
     // Update the user's profile photo
     await slackService.updateProfilePhoto(client, userId, teamId, sourceUrl);
-    
-    // Close modal and show success message
-    await client.views.update({
-      view_id: body.view.id,
-      view: {
-        type: 'modal',
-        title: {
-          type: 'plain_text',
-          text: 'Success! ✅'
-        },
-        blocks: [
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: `*Your profile photo has been updated!* 🎉\n\n*Applied transformation:* "${prompt}"\n\nYour new profile photo is now live across Slack.`
-            }
-          }
-        ],
-        close: {
-          type: 'plain_text',
-          text: 'Done'
-        }
-      }
-    });
+
+    // Show success modal
+    await showSuccessModal(client, body.view.id, prompt);
 
   } catch (error) {
     console.error('Edit approval error:', error.message);
-    
+
     // Handle authorization error
     if (error.message === 'USER_NOT_AUTHORIZED') {
-      const authUrl = getOAuthUrl(userId, teamId);
-      
-      await client.views.update({
-        view_id: body.view.id,
-        view: {
-          type: 'modal',
-          title: {
-            type: 'plain_text',
-            text: 'Authorization Required 🔐'
-          },
-          blocks: [
-            {
-              type: 'section',
-              text: {
-                type: 'mrkdwn',
-                text: '*Boo needs permission to update your profile photo!*\n\nClick the button below to authorize the app.'
-              }
-            },
-            {
-              type: 'actions',
-              elements: [
-                {
-                  type: 'button',
-                  text: {
-                    type: 'plain_text',
-                    text: '🔗 Authorize Boo'
-                  },
-                  url: authUrl,
-                  style: 'primary'
-                }
-              ]
-            }
-          ],
-          close: {
-            type: 'plain_text',
-            text: 'Close'
-          }
-        }
-      });
+      await showAuthorizationModal(client, body.view.id, userId, teamId);
     } else {
-      await client.views.update({
-        view_id: body.view.id,
-        view: {
-          type: 'modal',
-          title: {
-            type: 'plain_text',
-            text: 'Error ❌'
-          },
-          blocks: [
-            {
-              type: 'section',
-              text: {
-                type: 'mrkdwn',
-                text: '*Failed to update your profile photo.*\n\nPlease try again or contact your workspace admin if the problem persists.'
-              }
-            }
-          ],
-          close: {
-            type: 'plain_text',
-            text: 'Close'
-          }
-        }
-      });
+      await showErrorModal(client, body.view.id);
     }
   }
 }
@@ -343,7 +243,6 @@ async function handleApproveMessage({ ack, body, client }) {
     // Show success message in current context (no DM required)
     if (body.response_url) {
       // For interactive components, use response_url if available
-      const axios = require('axios');
       await axios.post(body.response_url, {
         text: '✅ *Profile picture updated!* 🎉',
         response_type: 'ephemeral'
@@ -356,9 +255,8 @@ async function handleApproveMessage({ ack, body, client }) {
     // Handle authorization error
     if (error.message === 'USER_NOT_AUTHORIZED') {
       const authUrl = getOAuthUrl(userId, teamId);
-      
+
       if (body.response_url) {
-        const axios = require('axios');
         await axios.post(body.response_url, {
           text: '🔐 *Authorization Required*',
           response_type: 'ephemeral',
@@ -390,7 +288,6 @@ async function handleApproveMessage({ ack, body, client }) {
     } else {
       // Show error message in current context (no DM required)
       if (body.response_url) {
-        const axios = require('axios');
         await axios.post(body.response_url, {
           text: '❌ *Failed to update your profile photo.*\n\nPlease try again or contact your workspace admin if the problem persists.',
           response_type: 'ephemeral'
@@ -697,45 +594,20 @@ async function handleReferenceImageSubmission({ ack, body, view, client }) {
     }
 
     // Add standardized action buttons
-    const actionElementsRef = [];
-    actionElementsRef.push({
-      type: 'button',
-      text: { type: 'plain_text', text: '✅ Update Profile Picture' },
-      style: 'primary',
-      action_id: 'approve_edit',
-      value: JSON.stringify({
-        editedImage: editedImageResult.localUrl || null,
-        slackFileId: editedImageResult.fileId || editedImageResult.slackFile?.id || null,
-        slackUrl: editedImageResult.slackFile?.url_private_download || null,
-        prompt: originalPrompt
-      })
+    const results = [{
+      localUrl: editedImageResult.localUrl || null,
+      fileId: editedImageResult.fileId || editedImageResult.slackFile?.id || null,
+      slackUrl: editedImageResult.slackFile?.url_private_download || null,
+      filename: imageData.filename || 'Edited Image.jpg'
+    }];
+    const actionElements = buildStandardActions({
+      results,
+      prompt: originalPrompt,
+      approveActionId: 'approve_edit',
+      retryActionId: 'retry_edit',
+      retryPayload: {}
     });
-    actionElementsRef.push({
-      type: 'button',
-      text: { type: 'plain_text', text: '📤 Share…' },
-      action_id: 'open_share_modal',
-      value: JSON.stringify({
-        results: [{
-          localUrl: editedImageResult.localUrl || null,
-          fileId: editedImageResult.fileId || editedImageResult.slackFile?.id || null,
-          slackUrl: editedImageResult.slackFile?.url_private_download || null,
-          filename: imageData.filename || 'Edited Image.jpg'
-        }],
-        prompt: originalPrompt
-      })
-    });
-    actionElementsRef.push({
-      type: 'button',
-      text: { type: 'plain_text', text: '⚙️ Advanced' },
-      action_id: 'open_advanced_modal',
-      value: JSON.stringify({ prompt: originalPrompt })
-    });
-    actionElementsRef.push({
-      type: 'button',
-      text: { type: 'plain_text', text: '🔄 Retry' },
-      action_id: 'retry_edit'
-    });
-    successBlocks.push({ type: 'actions', elements: actionElementsRef });
+    successBlocks.push({ type: 'actions', elements: actionElements });
 
     await client.views.update({
       view_id: body.view.id,
@@ -1457,22 +1329,21 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
     }
 
     // If profile selected, ensure it is included
-    // Gemini limit: allow at most 3 images per request (user precedence rule: profile takes precedence)
-    const MAX_TOTAL_IMAGES = 3;
+    // Gemini limit: allow at most N images per request (user precedence rule: profile takes precedence)
     const uploaded = [...sources];
     sources = uploaded; // start from uploaded
     if (profileImageUrl) {
       // Build combined list: keep first two uploads and profile photo
-      const trimmedUploads = uploaded.slice(0, Math.max(0, MAX_TOTAL_IMAGES - 1));
+      const trimmedUploads = uploaded.slice(0, Math.max(0, LIMITS.MAX_IMAGES_PER_REQUEST - 1));
       sources = [...trimmedUploads, { url: profileImageUrl, name: 'profile_photo', isProfile: true }];
       if (uploaded.length > trimmedUploads.length) {
         console.log(`✂️ Trimmed uploaded images from ${uploaded.length} to ${trimmedUploads.length} to include profile photo`);
       }
     } else {
-      // No profile: cap uploads to MAX_TOTAL_IMAGES
-      if (sources.length > MAX_TOTAL_IMAGES) {
-        console.log(`✂️ Trimmed uploaded images from ${sources.length} to ${MAX_TOTAL_IMAGES}`);
-        sources = sources.slice(0, MAX_TOTAL_IMAGES);
+      // No profile: cap uploads to max
+      if (sources.length > LIMITS.MAX_IMAGES_PER_REQUEST) {
+        console.log(`✂️ Trimmed uploaded images from ${sources.length} to ${LIMITS.MAX_IMAGES_PER_REQUEST}`);
+        sources = sources.slice(0, LIMITS.MAX_IMAGES_PER_REQUEST);
       }
     }
 
@@ -2123,7 +1994,6 @@ async function handleShareToChannelSubmission({ ack, body, client }) {
     }
 
     // Share: download from our hosted URL and upload
-    const axios = require('axios');
     let firstShared = true;
     for (const r of results || []) {
       const filename = r.filename || 'edited_image.jpg';

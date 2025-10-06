@@ -1,7 +1,6 @@
 const slackService = require('../services/slack');
 const imageService = require('../services/image');
-const userTokens = require('../services/userTokens');
-const { getOAuthUrl } = require('../services/fileServer');
+const { requireAuthorization } = require('../utils/authorization');
 
 async function handleExtendedSlashCommand({ command, ack, respond, client, body }) {
   await ack();
@@ -12,39 +11,9 @@ async function handleExtendedSlashCommand({ command, ack, respond, client, body 
 
   try {
     // Check if user is authorized to update their profile
-    if (!userTokens.isUserAuthorized(userId, teamId)) {
-      const authUrl = getOAuthUrl(userId, teamId);
-      
-      await respond({
-        text: '🔐 *Authorization Required*',
-        response_type: 'ephemeral',
-        blocks: [
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: '🔐 *Boo Extended needs permission to update your profile photo!*\n\nTo use this feature, you need to authorize the app with your personal Slack account.'
-            }
-          },
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: '👆 *Click the button below to authorize:*'
-            },
-            accessory: {
-              type: 'button',
-              text: {
-                type: 'plain_text',
-                text: '🔗 Authorize Boo',
-                emoji: true
-              },
-              url: authUrl,
-              style: 'primary'
-            }
-          }
-        ]
-      });
+    if (!await requireAuthorization(userId, teamId, respond, {
+      customMessage: '🔐 *Boo Extended needs permission to update your profile photo!*\n\nTo use this feature, you need to authorize the app with your personal Slack account.'
+    })) {
       return;
     }
 

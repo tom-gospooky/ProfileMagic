@@ -3,8 +3,9 @@ const slackService = require('./slack');
 const fileServer = require('./fileServer');
 const axios = require('axios');
 const { logSlackError } = require('../utils/logging');
+const { IMAGE_SIZE_LIMITS, API_RETRY, TIMEOUTS, LIMITS } = require('../constants/imageProcessing');
 
-async function compressIfLarge(buffer, mimeType = 'image/jpeg', maxBytes = 4 * 1024 * 1024, options = {}) {
+async function compressIfLarge(buffer, mimeType = 'image/jpeg', maxBytes = IMAGE_SIZE_LIMITS.GEMINI_MAX_BYTES, options = {}) {
   try {
     // If already small enough and JPEG, keep as-is
     if (buffer.length <= maxBytes && mimeType === 'image/jpeg') return { buffer, mimeType };
@@ -54,9 +55,9 @@ async function externalUploadAsSlackFile(client, imageBuffer, filename, userId) 
   // Try external upload with proactive compression for large buffers and stronger 413 handling
   try {
     let toUpload = imageBuffer;
-    // If very large upfront (>7MB), proactively compress to ~3MB with modest downscaling
-    if (toUpload.length > 7 * 1024 * 1024) {
-      const c = await compressIfLarge(toUpload, 'image/jpeg', 3 * 1024 * 1024, { maxSide: 1600, minSide: 900 });
+    // If very large upfront, proactively compress with modest downscaling
+    if (toUpload.length > IMAGE_SIZE_LIMITS.PROACTIVE_COMPRESS_THRESHOLD) {
+      const c = await compressIfLarge(toUpload, 'image/jpeg', IMAGE_SIZE_LIMITS.PROACTIVE_COMPRESS_TARGET, { maxSide: 1600, minSide: 900 });
       toUpload = c.buffer;
     }
 
@@ -78,9 +79,9 @@ async function externalUploadAsSlackFile(client, imageBuffer, filename, userId) 
   } catch (err) {
     const status = err?.response?.status || err?.status;
     if (status === 413) {
-      // Compress and retry with stricter target (~2MB) and smaller max side
+      // Compress and retry with aggressive compression target and smaller max side
       try {
-        const { buffer: smaller } = await compressIfLarge(imageBuffer, 'image/jpeg', 2 * 1024 * 1024, { maxSide: 1280, minSide: 720 });
+        const { buffer: smaller } = await compressIfLarge(imageBuffer, 'image/jpeg', IMAGE_SIZE_LIMITS.RETRY_COMPRESS_TARGET, { maxSide: 1280, minSide: 720 });
         const retry = await client.files.getUploadURLExternal({ filename, length: smaller.length });
         await axios.put(retry.upload_url, smaller, {
           headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': smaller.length }
@@ -156,8 +157,7 @@ async function callGeminiWithRetry(ai, contentParts, isProduction) {
   const modelList = [...new Set([...defaultModels, ...models])];
 
   for (const modelName of modelList) {
-    const maxAttempts = 2;
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    for (let attempt = 1; attempt <= API_RETRY.MAX_ATTEMPTS; attempt++) {
       try {
         if (!isProduction) console.log(`Gemini call: model=${modelName} attempt=${attempt}`);
         // Pattern 1
@@ -180,8 +180,8 @@ async function callGeminiWithRetry(ai, contentParts, isProduction) {
         const status = err?.status || err?.code || err?.response?.status;
         const internal = /INTERNAL|UNAVAILABLE|DEADLINE|500/.test(String(status)) || /INTERNAL/.test(err?.message || '');
         if (!isProduction) console.warn(`Gemini error on model=${modelName} attempt=${attempt}:`, err?.message || err);
-        if (attempt < maxAttempts && internal) {
-          const backoff = 400 * attempt;
+        if (attempt < API_RETRY.MAX_ATTEMPTS && internal) {
+          const backoff = API_RETRY.BACKOFF_BASE_MS * attempt;
           await new Promise(r => setTimeout(r, backoff));
           continue; // retry same model
         }
@@ -291,7 +291,7 @@ async function editImage(imageUrl, prompt, client, userId, referenceImageUrl = n
     // Download the original image
     const original = await slackService.downloadImageWithMime(imageUrl);
     // Compress/normalize before sending to Gemini to reduce 500s from oversized payloads
-    const maxBytesGemini = Number(process.env.GEMINI_MAX_BYTES || 4 * 1024 * 1024);
+    const maxBytesGemini = Number(process.env.GEMINI_MAX_BYTES || IMAGE_SIZE_LIMITS.GEMINI_MAX_BYTES);
     const pre = await compressIfLarge(original.buffer, original.mimeType || 'image/jpeg', maxBytesGemini);
     const imageBuffer = pre.buffer;
     const originalMime = pre.mimeType || 'image/jpeg';
@@ -395,7 +395,7 @@ async function editImageGroup(imageUrls, prompt, client, userId, channelId = nul
     for (const url of imageUrls) {
       try {
         const { buffer, mimeType } = await slackService.downloadImageWithMime(url);
-        const maxBytesGemini = Number(process.env.GEMINI_MAX_BYTES || 4 * 1024 * 1024);
+        const maxBytesGemini = Number(process.env.GEMINI_MAX_BYTES || IMAGE_SIZE_LIMITS.GEMINI_MAX_BYTES);
         const pre = await compressIfLarge(buffer, mimeType || 'image/jpeg', maxBytesGemini);
         contentParts.push(bufferToPart(pre.buffer, pre.mimeType || 'image/jpeg'));
       } catch (e) {

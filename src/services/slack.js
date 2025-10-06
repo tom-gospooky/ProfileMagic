@@ -117,46 +117,7 @@ async function updateProfilePhoto(botClient, userId, teamId, imageUrl) {
   }
 }
 
-async function downloadImage(imageUrl) {
-  try {
-    const headers = { 'User-Agent': 'Boo/1.0' };
-    // If this is a Slack private file URL, include bot auth
-    try {
-      const u = new URL(imageUrl);
-      if (u.hostname.includes('slack.com')) {
-        if (process.env.SLACK_BOT_TOKEN) {
-          headers['Authorization'] = `Bearer ${process.env.SLACK_BOT_TOKEN}`;
-        }
-      }
-    } catch (_) {}
-
-    const response = await axios({
-      method: 'GET',
-      url: imageUrl,
-      responseType: 'arraybuffer',
-      timeout: 30000, // 30 second timeout
-      headers,
-      maxRedirects: 5,
-      validateStatus: function (status) {
-        return status >= 200 && status < 300; // Accept only success status codes
-      }
-    });
-
-    if (!response.data) {
-      throw new Error('No image data received');
-    }
-
-    return Buffer.from(response.data);
-  } catch (error) {
-    console.error('Image download error:', error.message);
-    if (error.response) {
-      console.error('Status:', error.response.status, 'URL:', imageUrl);
-    }
-    throw error;
-  }
-}
-
-// Variant that returns both buffer and mimeType
+// Download image with optional mime type return
 async function downloadImageWithMime(imageUrl) {
   try {
     const headers = { 'User-Agent': 'Boo/1.0' };
@@ -179,16 +140,26 @@ async function downloadImageWithMime(imageUrl) {
       validateStatus: (status) => status >= 200 && status < 300
     });
 
+    if (!response.data) {
+      throw new Error('No image data received');
+    }
+
     const buffer = Buffer.from(response.data);
     const mimeType = (response.headers && response.headers['content-type']) || null;
     return { buffer, mimeType };
   } catch (error) {
-    console.error('Image download (with mime) error:', error.message);
+    console.error('Image download error:', error.message);
     if (error.response) {
       console.error('Status:', error.response.status, 'URL:', imageUrl);
     }
     throw error;
   }
+}
+
+// Legacy wrapper for backward compatibility - returns buffer only
+async function downloadImage(imageUrl) {
+  const { buffer } = await downloadImageWithMime(imageUrl);
+  return buffer;
 }
 
 module.exports = {

@@ -30,7 +30,8 @@
       "Bash(claude --version)",
       "Bash(npm run lint)",
       "Bash(npm run lint:*)",
-      "Bash(env)"
+      "Bash(env)",
+      "Bash(rm:*)"
     ],
     "deny": [],
     "ask": []
