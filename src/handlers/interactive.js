@@ -1333,7 +1333,6 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
       console.log('🔍 RESPONSE_URL DEBUG:', {
         hasResponseUrl: !!responseUrl,
         urlPreview: responseUrl?.substring(0, 50) + '...',
-        replaceOriginal: !!replaceOriginal,
         channelId,
         userId,
         isUserToUserDM: channelId?.startsWith('D'),
@@ -1346,7 +1345,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
         const response = await axios.post(responseUrl, {
           response_type: 'ephemeral',
           text,
-          replace_original: false, // Never replace on processing message (keeps prior results visible)
+          replace_original: true, // Replace the button message with processing status
           ...(threadTs && !isDM ? { thread_ts: threadTs } : {})
         });
 
