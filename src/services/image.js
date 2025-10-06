@@ -246,10 +246,23 @@ const handleApiResponse = async (response, context = 'edit', client, userId, cha
       const extFirst = await externalUploadAsSlackFile(client, imageBuffer, filename, userId);
       if (extFirst.ok) {
         if (!isProduction) console.log(`External upload (unshared) created Slack file: ${extFirst.file.id}`);
+        // Try to create a public URL for inline previews
+        let sharedPublicUrl = null;
+        try {
+          const shared = await client.files.sharedPublicURL({ file: extFirst.file.id });
+          sharedPublicUrl = shared?.file?.permalink_public || null;
+        } catch (_) {}
+        // Enrich with file info
+        let enriched = extFirst.file;
+        try {
+          const info = await client.files.info({ file: extFirst.file.id });
+          if (info?.file) enriched = { ...enriched, ...info.file };
+          if (!sharedPublicUrl && info?.file?.permalink_public) sharedPublicUrl = info.file.permalink_public;
+        } catch (_) {}
         return {
           fileId: extFirst.file.id,
-          localUrl: null, // No temp URL; Slack files-first
-          slackFile: extFirst.file,
+          localUrl: sharedPublicUrl, // Use Slack public link for block image when available
+          slackFile: enriched,
           origin: 'external'
         };
       }
@@ -278,13 +291,19 @@ const handleApiResponse = async (response, context = 'edit', client, userId, cha
       if (!isProduction) console.log(`Uploaded image to user's DM: ${uploaded.id}`);
       // Enrich with file info for stable permalink
       let enriched = uploaded;
+      let sharedPublicUrl = null;
+      try {
+        const shared = await client.files.sharedPublicURL({ file: uploaded.id });
+        sharedPublicUrl = shared?.file?.permalink_public || null;
+      } catch (_) {}
       try {
         const info = await client.files.info({ file: uploaded.id });
         if (info?.file) enriched = { ...uploaded, ...info.file };
+        if (!sharedPublicUrl && info?.file?.permalink_public) sharedPublicUrl = info.file.permalink_public;
       } catch (_) {}
       return {
         fileId: uploaded.id,
-        localUrl: null,
+        localUrl: sharedPublicUrl, // Public URL for rendering if permitted
         slackFile: enriched,
         origin: 'dm'
       };
