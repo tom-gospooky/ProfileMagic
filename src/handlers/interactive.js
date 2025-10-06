@@ -406,6 +406,74 @@ async function handleRetryMessage({ ack, body, client }) {
   }
 }
 
+// Retry with exact same settings from results (modal flow)
+async function handleRetrySame({ ack, body, client }) {
+  await ack();
+
+  try {
+    const payload = JSON.parse(body.actions?.[0]?.value || '{}');
+    const userId = body.user.id;
+    const channelId = payload.channelId || body.channel?.id || body.container?.channel_id || body.channel_id;
+    const promptValue = payload.prompt || '';
+    const files = Array.isArray(payload.files) ? payload.files : [];
+    const useProfileRef = payload.useProfileRef ? ['include_profile_reference'] : [];
+
+    // Kick off the same processing again using response_url for ephemerals when available
+    await processImagesAsync(
+      client,
+      userId,
+      channelId,
+      promptValue,
+      files,
+      useProfileRef,
+      null,
+      body.response_url || null
+    );
+  } catch (error) {
+    console.error('Retry same-settings error:', error);
+    try {
+      await client.chat.postEphemeral({
+        channel: body.channel?.id || body.container?.channel_id || body.channel_id,
+        user: body.user.id,
+        text: '❌ Could not retry with the same settings. Please try again.'
+      });
+    } catch (_) {}
+  }
+}
+
+// Retry with exact same settings for direct prompt flow (profile-only)
+async function handleRetryDirect({ ack, body, client }) {
+  await ack();
+
+  try {
+    const payload = JSON.parse(body.actions?.[0]?.value || '{}');
+    const userId = body.user.id;
+    const channelId = payload.channelId || body.channel?.id || body.container?.channel_id || body.channel_id;
+    const promptValue = payload.prompt || '';
+
+    // Reuse processImagesAsync with profile reference only
+    await processImagesAsync(
+      client,
+      userId,
+      channelId,
+      promptValue,
+      [],
+      ['include_profile_reference'],
+      null,
+      body.response_url || null
+    );
+  } catch (error) {
+    console.error('Retry direct error:', error);
+    try {
+      await client.chat.postEphemeral({
+        channel: body.channel?.id || body.container?.channel_id || body.channel_id,
+        user: body.user.id,
+        text: '❌ Could not retry the edit. Please try again.'
+      });
+    } catch (_) {}
+  }
+}
+
 async function handleReferenceImageModal({ ack, body, client }) {
   await ack();
   
@@ -1453,7 +1521,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
           // Share… (open modal with channel selector)
           actionElements.push({
             type: 'button',
-            text: { type: 'plain_text', text: '🔥 Post to Channel' },
+            text: { type: 'plain_text', text: '📤 Share…' },
             action_id: 'open_share_modal',
             value: JSON.stringify({
               results: successful.map(result => ({
@@ -1469,9 +1537,23 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
           // Advanced
           actionElements.push({
             type: 'button',
-            text: { type: 'plain_text', text: '🔄' },
+            text: { type: 'plain_text', text: '⚙️ Advanced' },
             action_id: 'open_advanced_modal',
             value: JSON.stringify({ prompt: promptValue })
+          });
+
+          // Retry (process same settings again)
+          const profileSelected = Array.isArray(useProfileRef) && useProfileRef.length > 0;
+          actionElements.push({
+            type: 'button',
+            text: { type: 'plain_text', text: '🔄 Retry' },
+            action_id: 'retry_same',
+            value: JSON.stringify({
+              prompt: promptValue,
+              channelId: channelId,
+              files: (uploadedFiles || []).map(f => ({ id: f.id, name: f.name })),
+              useProfileRef: !!profileSelected
+            })
           });
 
           // // Add "Retry" button (always show since results are initially private)
@@ -2152,6 +2234,8 @@ module.exports = {
   handleCancel,
   handleApproveMessage,
   handleRetryMessage,
+  handleRetrySame,
+  handleRetryDirect,
   handleReferenceImageModal,
   handleReferenceImageSubmission,
   handleApproveExtended,

@@ -63,6 +63,8 @@ app.action('use_profile_reference', interactiveHandler.handleProfileReferenceTog
 app.action('send_to_channel', interactiveHandler.handleSendToChannel);
 app.action('open_share_modal', interactiveHandler.handleOpenShareModal);
 app.action('open_advanced_modal', interactiveHandler.handleOpenAdvancedModal);
+app.action('retry_same', interactiveHandler.handleRetrySame);
+app.action('retry_direct', interactiveHandler.handleRetryDirect);
 
 // Message shortcut handlers
 app.shortcut('banana', interactiveHandler.handleMessageShortcut);

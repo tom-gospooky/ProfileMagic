@@ -93,7 +93,7 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
       const editedImageResult = await imageService.editImage(currentPhoto, prompt, client, userId);
       
       // Send single response with before/after images and action buttons  
-      let successText = `✅ *Edit complete!*\n\n*Prompt used:* "${prompt}"`;
+      let successText = `✅ *Edit complete!*`;
       
       const responseBlocks = [
         {
@@ -171,6 +171,13 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
         text: { type: 'plain_text', text: '🔄' },
         action_id: 'open_advanced_modal',
         value: JSON.stringify({ prompt })
+      });
+      // Retry (process same settings again)
+      actions.push({
+        type: 'button',
+        text: { type: 'plain_text', text: '🔄 Retry' },
+        action_id: 'retry_direct',
+        value: JSON.stringify({ prompt, channelId })
       });
       responseBlocks.push({ type: 'actions', elements: actions });
 
