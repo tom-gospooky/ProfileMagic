@@ -1230,8 +1230,15 @@ async function sendMessageRobust(client, channelId, userId, text, blocks = undef
       name: 'ephemeral',
       fn: () => client.chat.postEphemeral({ channel: channelId, user: userId, text, blocks, ...(threadTs ? { thread_ts: threadTs } : {}) })
     });
+  } else {
+    // For DM channels, post directly to the DM conversation (channelId), not open new DM with userId
+    methods.push({
+      name: 'dm_in_channel',
+      fn: () => client.chat.postMessage({ channel: channelId, text, blocks, ...(threadTs ? { thread_ts: threadTs } : {}) })
+    });
   }
 
+  // Fallback: open/use DM with user (may create new DM if channelId failed)
   methods.push({
     name: 'dm_to_user',
     fn: () => client.chat.postMessage({ channel: userId, text, blocks, ...(threadTs ? { thread_ts: threadTs } : {}) })
