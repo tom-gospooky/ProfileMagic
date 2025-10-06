@@ -29,14 +29,7 @@ async function handleSlashCommand({ command, ack, respond, client, body }) {
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: '🔐 *Boo needs permission to update your profile photo!*\n\nTo use this feature, you need to authorize the app with your personal Slack account.'
-            }
-          },
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: '👆 *Click the button below to authorize:*'
+              text: '🔐 *Boo needs permission to update your profile photo!*'
             },
             accessory: {
               type: 'button',
@@ -151,7 +144,7 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
         value: JSON.stringify({ editedImage: editedImageResult.localUrl, prompt })
       });
       // Post (no modal, current channel)
-      actions.push({
+/*       actions.push({
         type: 'button',
         text: { type: 'plain_text', text: '📣 Post' },
         action_id: 'send_to_channel',
@@ -160,11 +153,11 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
           prompt,
           channelId
         })
-      });
+      }); */
       // Share… (open modal with channel selector)
       actions.push({
         type: 'button',
-        text: { type: 'plain_text', text: '📤 Share…' },
+        text: { type: 'plain_text', text: '🔥 Post to Channel' },
         action_id: 'open_share_modal',
         value: JSON.stringify({
           results: [{ localUrl: editedImageResult.localUrl, filename: 'Edited Image' }],
@@ -175,7 +168,7 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
       // Advanced
       actions.push({
         type: 'button',
-        text: { type: 'plain_text', text: '⚙️ Advanced' },
+        text: { type: 'plain_text', text: '🔄' },
         action_id: 'open_advanced_modal',
         value: JSON.stringify({ prompt })
       });
@@ -297,7 +290,7 @@ async function showFileSelectionModal(client, triggerId, teamId, userId, channel
           initial_options: [{
             text: {
               type: 'plain_text',
-              text: 'Use my current profile photo as style reference',
+              text: 'Use my current profile photo as an image reference',
               emoji: true
             },
             value: 'include_profile_reference'
@@ -305,7 +298,7 @@ async function showFileSelectionModal(client, triggerId, teamId, userId, channel
           options: [{
             text: {
               type: 'plain_text',
-              text: 'Use my current profile photo as style reference',
+              text: 'Use my current profile photo as an image reference',
               emoji: true
             },
             value: 'include_profile_reference'

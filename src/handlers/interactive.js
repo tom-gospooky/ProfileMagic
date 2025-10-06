@@ -1388,7 +1388,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: `✅ *Transformation complete!*\n\n*Prompt:* "${promptValue}"`
+              text: `✅ *Transformation complete!*`
             }
           }
         ];
@@ -1435,7 +1435,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
           }
 
           // Post (no modal) to the current channel
-          actionElements.push({
+/*           actionElements.push({
             type: 'button',
             text: { type: 'plain_text', text: '📣 Post' },
             action_id: 'send_to_channel',
@@ -1448,12 +1448,12 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
               prompt: promptValue,
               channelId: channelId
             })
-          });
+          }); */
 
           // Share… (open modal with channel selector)
           actionElements.push({
             type: 'button',
-            text: { type: 'plain_text', text: '📤 Share…' },
+            text: { type: 'plain_text', text: '🔥 Post to Channel' },
             action_id: 'open_share_modal',
             value: JSON.stringify({
               results: successful.map(result => ({
@@ -1469,7 +1469,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
           // Advanced
           actionElements.push({
             type: 'button',
-            text: { type: 'plain_text', text: '⚙️ Advanced' },
+            text: { type: 'plain_text', text: '🔄' },
             action_id: 'open_advanced_modal',
             value: JSON.stringify({ prompt: promptValue })
           });
@@ -2007,7 +2007,7 @@ async function handleOpenShareModal({ ack, body, client }) {
       view: {
         type: 'modal',
         callback_id: 'share_to_channel_modal',
-        title: { type: 'plain_text', text: 'Share to Channel' },
+        title: { type: 'plain_text', text: 'Post to Channel' },
         submit: { type: 'plain_text', text: 'Share' },
         close: { type: 'plain_text', text: 'Cancel' },
         private_metadata: JSON.stringify({ results, prompt, defaultChannel: channelId, userId }),
