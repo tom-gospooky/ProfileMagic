@@ -109,46 +109,22 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
       if (editedImageResult.localUrl) {
         responseBlocks.push({
           type: 'image',
-          title: { type: 'plain_text', text: '✨ AI-Edited Image' },
+          title: { type: 'plain_text', text: '✨ Edited' },
           image_url: editedImageResult.localUrl,
           alt_text: 'AI-edited profile photo'
         });
       }
 
-      // Standardized action buttons across flows
-      const actions = [];
-      // Update Profile Picture
-      actions.push({
-        type: 'button',
-        text: { type: 'plain_text', text: '✅ Update Profile Picture' },
-        style: 'primary',
-        action_id: 'approve_edit_message',
-        value: JSON.stringify({ editedImage: editedImageResult.localUrl, prompt })
-      });
-      // Share… (open modal with channel selector)
-      actions.push({
-        type: 'button',
-        text: { type: 'plain_text', text: '📤 Share…' },
-        action_id: 'open_share_modal',
-        value: JSON.stringify({
-          results: [{ localUrl: editedImageResult.localUrl, filename: 'Edited Image' }],
-          prompt,
-          channelId
-        })
-      });
-      // Advanced
-      actions.push({
-        type: 'button',
-        text: { type: 'plain_text', text: '⚙️ Advanced' },
-        action_id: 'open_advanced_modal',
-        value: JSON.stringify({ prompt })
-      });
-      // Retry (process same settings again)
-      actions.push({
-        type: 'button',
-        text: { type: 'plain_text', text: '🔄 Retry' },
-        action_id: 'retry_direct',
-        value: JSON.stringify({ prompt, channelId })
+      // Standardized action buttons via shared helper
+      const { buildStandardActions } = require('../blocks/results');
+      const actions = buildStandardActions({
+        results: [{ localUrl: editedImageResult.localUrl, filename: 'Edited Image' }],
+        prompt,
+        channelId,
+        approveActionId: 'approve_edit_message',
+        retryActionId: 'retry_direct',
+        retryPayload: { prompt, channelId },
+        advancedPromptValue: prompt
       });
       responseBlocks.push({ type: 'actions', elements: actions });
 

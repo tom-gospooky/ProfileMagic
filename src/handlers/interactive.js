@@ -1450,14 +1450,29 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
         ];
 
         // Add successful results (use public URL for reliability)
-        for (const result of successful) {
-          if (result.result.localUrl) {
-            resultBlocks.push({
-              type: 'image',
-              title: { type: 'plain_text', text: `✨ ${result.originalFile.name}` },
-              image_url: result.result.localUrl,
-              alt_text: `AI-transformed ${result.originalFile.name}`
+        {
+          const { buildImageBlocksFromResults, buildStandardActions } = require('../blocks/results');
+          const imgBlocks = buildImageBlocksFromResults(successful);
+          resultBlocks.push(...imgBlocks);
+
+          // Add standardized action buttons
+          if (successful.length > 0) {
+            const profileSelected = Array.isArray(useProfileRef) && useProfileRef.length > 0;
+            const actions = buildStandardActions({
+              results: successful,
+              prompt: promptValue,
+              channelId: channelId,
+              approveActionId: 'approve_edit_message',
+              retryActionId: 'retry_same',
+              retryPayload: {
+                prompt: promptValue,
+                channelId: channelId,
+                files: (uploadedFiles || []).map(f => ({ id: f.id, name: f.name })),
+                useProfileRef: !!profileSelected
+              },
+              advancedPromptValue: promptValue
             });
+            resultBlocks.push({ type: 'actions', elements: actions });
           }
         }
 
@@ -2043,51 +2058,8 @@ async function handleOpenShareModal({ ack, body, client }) {
   try {
     const payload = JSON.parse(body.actions[0].value);
     const { results, prompt, channelId } = payload;
-    await client.views.open({
-      trigger_id: body.trigger_id,
-      view: {
-        type: 'modal',
-        callback_id: 'share_to_channel_modal',
-        title: { type: 'plain_text', text: 'Share to Channel' },
-        submit: { type: 'plain_text', text: 'Share' },
-        close: { type: 'plain_text', text: 'Cancel' },
-        private_metadata: JSON.stringify({ results, prompt, defaultChannel: channelId, userId }),
-        blocks: [
-          {
-            type: 'input',
-            block_id: 'channel_select',
-            element: {
-              type: 'conversations_select',
-              action_id: 'selected_channel',
-              placeholder: { type: 'plain_text', text: 'Select a channel or DM' },
-              initial_conversation: channelId,
-              filter: { include: ['public', 'private', 'im', 'mpim'] }
-            },
-            label: { type: 'plain_text', text: 'Destination' }
-          },
-          {
-            type: 'input',
-            block_id: 'caption_input',
-            optional: true,
-            element: {
-              type: 'plain_text_input',
-              action_id: 'share_caption',
-              placeholder: { type: 'plain_text', text: 'Add a message (optional)' }
-            },
-            label: { type: 'plain_text', text: 'Caption (optional)' }
-          },
-          ...( (results && results[0]?.localUrl)
-            ? [{
-                type: 'section',
-                text: { type: 'mrkdwn', text: '*Preview*' },
-                accessory: { type: 'image', image_url: results[0].localUrl, alt_text: 'Preview' }
-              }]
-            : []
-          ),
-          { type: 'context', elements: [{ type: 'mrkdwn', text: 'Images will be attached to your message.' }] }
-        ]
-      }
-    });
+    const { buildShareModalView } = require('../blocks/share');
+    await client.views.open({ trigger_id: body.trigger_id, view: buildShareModalView({ results, prompt, channelId, userId }) });
   } catch (e) {
     console.error('Failed to open Share modal:', e);
   }
@@ -2131,27 +2103,9 @@ async function handleShareToChannelSubmission({ ack, body, client }) {
 
   const isPublic = typeof selectedChannel === 'string' && selectedChannel.startsWith('C');
   try {
-    // Build blocks
-    const messageBlocks = [];
-
-    if (caption && caption.length) {
-      messageBlocks.push({
-        type: 'section',
-        text: { type: 'mrkdwn', text: caption }
-      });
-    }
-
-    for (const result of results) {
-      // Always use the public URL for blocks; avoid slack_file permission issues
-      if (result.localUrl) {
-        messageBlocks.push({
-          type: 'image',
-          title: { type: 'plain_text', text: `✨ ${result.filename}` },
-          image_url: result.localUrl,
-          alt_text: `AI-transformed ${result.filename}`
-        });
-      }
-    }
+    // Build blocks via shared helper
+    const { buildShareMessageBlocks } = require('../blocks/share');
+    const messageBlocks = buildShareMessageBlocks({ results, caption });
 
     // Prefer posting as the user if we have their token (better UX in private DMs/G-channels)
     const userToken = userTokens.getUserToken(userId, teamId);
