@@ -1340,8 +1340,17 @@ async function sendMessageRobust(client, channelId, userId, text, blocks = undef
       try {
         result = await method.fn();
       } catch (firstError) {
-        // Only attempt join+retry when we are explicitly allowed to post publicly
-        if (allowPublic && method.name === 'public_message' && ['not_in_channel','channel_not_found'].includes(firstError.data?.error)) {
+        // Attempt a one-time join & retry for public channels when not_in_channel
+        const errCode = firstError.data?.error || firstError.code || firstError.message;
+        const isPublicChan = typeof channelId === 'string' && channelId.startsWith('C');
+        if (method.name === 'ephemeral' && isPublicChan && ['not_in_channel','channel_not_found'].includes(errCode)) {
+          try {
+            await ensureBotInChannel(client, channelId);
+            result = await method.fn();
+          } catch (_) {
+            throw firstError;
+          }
+        } else if (allowPublic && method.name === 'public_message' && ['not_in_channel','channel_not_found'].includes(errCode)) {
           await ensureBotInChannel(client, channelId);
           result = await method.fn();
         } else {
