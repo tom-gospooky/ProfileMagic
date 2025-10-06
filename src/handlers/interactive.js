@@ -422,7 +422,7 @@ async function handleRetryMessage({ ack, body, client }) {
       body.user.id,
       body.channel.id,
       prompt,
-      body.response_url || null
+      null
     );
   } catch (error) {
     console.error('Error re-opening modal:', error.message);
@@ -447,7 +447,7 @@ async function handleRetrySame({ ack, body, client }) {
     const useProfileRef = payload.useProfileRef ? ['include_profile_reference'] : [];
     const threadTs = body.message?.thread_ts || body.message?.ts || body.container?.thread_ts || body.container?.message_ts || null;
 
-    // Kick off the same processing again using response_url for ephemerals when available
+    // Kick off the same processing again; do NOT use response_url here so the prior message persists
     await processImagesAsync(
       client,
       userId,
@@ -456,7 +456,7 @@ async function handleRetrySame({ ack, body, client }) {
       files,
       useProfileRef,
       null,
-      body.response_url || null,
+      null,
       threadTs
     );
   } catch (error) {
@@ -482,7 +482,7 @@ async function handleRetryDirect({ ack, body, client }) {
     const promptValue = payload.prompt || '';
     const threadTs = body.message?.thread_ts || body.message?.ts || body.container?.thread_ts || body.container?.message_ts || null;
 
-    // Reuse processImagesAsync with profile reference only
+    // Reuse processImagesAsync with profile reference only; do NOT use response_url so previous message persists
     await processImagesAsync(
       client,
       userId,
@@ -491,7 +491,7 @@ async function handleRetryDirect({ ack, body, client }) {
       [],
       ['include_profile_reference'],
       null,
-      body.response_url || null,
+      null,
       threadTs
     );
   } catch (error) {
@@ -1399,7 +1399,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
     // Send processing message using robust cascade approach
     // We will process each image individually; message shows total count
     // const plannedSourcesCount = (uploadedFiles?.length || 0) + (profileImageUrl ? 1 : 0);
-    const text = `🎨 *Processing`;
+    const text = `🎨 Processing...`;
     // const text = `🎨 *Processing ${plannedSourcesCount} image${plannedSourcesCount === 1 ? '' : 's'}...*\n*Prompt:* "${promptValue}"\n\nYour results will appear here shortly!`;
 
     console.log('📤 Attempting to send processing message...');
