@@ -1332,23 +1332,45 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
 
     console.log('📤 Attempting to send processing message...');
     if (responseUrl) {
+      console.log('🔍 RESPONSE_URL DEBUG:', {
+        hasResponseUrl: !!responseUrl,
+        urlPreview: responseUrl?.substring(0, 50) + '...',
+        replaceOriginal: !!replaceOriginal,
+        channelId,
+        userId,
+        isUserToUserDM: channelId?.startsWith('D'),
+        hasThreadTs: !!threadTs
+      });
+
       try {
-        await axios.post(responseUrl, {
+        const response = await axios.post(responseUrl, {
           response_type: 'ephemeral',
           text,
           replace_original: !!replaceOriginal,
           ...(threadTs ? { thread_ts: threadTs } : {})
         });
+
+        console.log('✅ response_url POST succeeded:', {
+          status: response.status,
+          statusText: response.statusText,
+          dataPreview: JSON.stringify(response.data || {}).substring(0, 100)
+        });
         usedResponseUrl = true;
-        console.log('✅ Processing ephemeral sent via response_url');
       } catch (e) {
-        console.log('❌ response_url processing send failed, falling back:', e.response?.data || e.message);
+        console.log('❌ response_url POST FAILED:', {
+          status: e.response?.status,
+          statusText: e.response?.statusText,
+          errorData: e.response?.data,
+          errorMessage: e.message,
+          willFallbackTo: 'sendMessageRobust'
+        });
         usedResponseUrl = false;
         processingMsg = await sendMessageRobust(client, channelId, userId, text, undefined, { allowPublic: false, threadTs });
         processingTs = processingMsg?.ts || processingMsg?.message_ts || null;
         processingChannel = processingMsg?.channel || channelId;
       }
     } else {
+      console.log('⚠️ No response_url provided, using sendMessageRobust directly');
       processingMsg = await sendMessageRobust(client, channelId, userId, text, undefined, { allowPublic: false, threadTs });
       processingTs = processingMsg?.ts || processingMsg?.message_ts || null;
       processingChannel = processingMsg?.channel || channelId;
@@ -1474,17 +1496,35 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
         const successText = SUCCESS_TEXT;
 
         if (usedResponseUrl && responseUrl) {
+          console.log('🔍 RESULT UPDATE via response_url:', {
+            hasResponseUrl: !!responseUrl,
+            replaceOriginal: !!replaceOriginal,
+            blockCount: resultBlocks.length,
+            channelId,
+            isUserToUserDM: channelId?.startsWith('D')
+          });
+
           try {
-            await axios.post(responseUrl, {
+            const response = await axios.post(responseUrl, {
               response_type: 'ephemeral',
               text: successText,
               blocks: resultBlocks,
               replace_original: !!replaceOriginal,
               ...(threadTs ? { thread_ts: threadTs } : {})
             });
-            console.log('✅ Updated ephemeral via response_url');
+
+            console.log('✅ Result update via response_url succeeded:', {
+              status: response.status,
+              statusText: response.statusText
+            });
           } catch (e) {
-            console.log('❌ response_url update failed, falling back:', e.response?.data || e.message);
+            console.log('❌ response_url result update FAILED:', {
+              status: e.response?.status,
+              statusText: e.response?.statusText,
+              errorData: e.response?.data,
+              errorMessage: e.message,
+              willFallbackTo: 'sendMessageRobust'
+            });
             await sendMessageRobust(client, channelId, userId, successText, resultBlocks, { allowPublic: false, threadTs });
           }
         } else if (processingTs && processingMsg?.deliveryMethod !== 'ephemeral') {
@@ -1524,16 +1564,34 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
         }];
 
         if (usedResponseUrl && responseUrl) {
+          console.log('🔍 ERROR UPDATE via response_url:', {
+            hasResponseUrl: !!responseUrl,
+            replaceOriginal: !!replaceOriginal,
+            channelId,
+            isUserToUserDM: channelId?.startsWith('D')
+          });
+
           try {
-            await axios.post(responseUrl, {
+            const response = await axios.post(responseUrl, {
               response_type: 'ephemeral',
               text: errorMessage,
               blocks: errorBlocks,
               replace_original: !!replaceOriginal,
               ...(threadTs ? { thread_ts: threadTs } : {})
             });
+
+            console.log('✅ Error update via response_url succeeded:', {
+              status: response.status,
+              statusText: response.statusText
+            });
           } catch (e) {
-            console.log('❌ response_url error update failed:', e.response?.data || e.message);
+            console.log('❌ response_url error update FAILED:', {
+              status: e.response?.status,
+              statusText: e.response?.statusText,
+              errorData: e.response?.data,
+              errorMessage: e.message,
+              willFallbackTo: 'sendMessageRobust'
+            });
             await sendMessageRobust(client, channelId, userId, errorMessage, errorBlocks, { allowPublic: false, threadTs });
           }
         } else if (processingTs && processingMsg?.deliveryMethod !== 'ephemeral') {
