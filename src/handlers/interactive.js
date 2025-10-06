@@ -1490,21 +1490,7 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
             });
           }
 
-          // Post (no modal) to the current channel
-          actionElements.push({
-            type: 'button',
-            text: { type: 'plain_text', text: '📣 Post' },
-            action_id: 'send_to_channel',
-            value: JSON.stringify({
-              results: successful.map(result => ({
-                localUrl: result.result.localUrl,
-                fileId: result.result.fileId,
-                filename: result.originalFile.name
-              })),
-              prompt: promptValue,
-              channelId: channelId
-            })
-          });
+          // Removed Post option by request
 
           // Share… (open modal with channel selector)
           actionElements.push({
@@ -1592,7 +1578,6 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
           try {
             await axios.post(responseUrl, {
               response_type: 'ephemeral',
-              replace_original: true,
               text: successText,
               blocks: resultBlocks
             });
@@ -1641,7 +1626,6 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
           try {
             await axios.post(responseUrl, {
               response_type: 'ephemeral',
-              replace_original: true,
               text: errorMessage,
               blocks: errorBlocks
             });
@@ -2064,7 +2048,7 @@ async function handleOpenShareModal({ ack, body, client }) {
       view: {
         type: 'modal',
         callback_id: 'share_to_channel_modal',
-        title: { type: 'plain_text', text: 'Post to Channel' },
+        title: { type: 'plain_text', text: 'Share to Channel' },
         submit: { type: 'plain_text', text: 'Share' },
         close: { type: 'plain_text', text: 'Cancel' },
         private_metadata: JSON.stringify({ results, prompt, defaultChannel: channelId, userId }),

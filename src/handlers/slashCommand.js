@@ -29,7 +29,7 @@ async function handleSlashCommand({ command, ack, respond, client, body }) {
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: '🔐 *Boo needs permission to update your profile photo!*'
+              text: '*Boo needs permission to update your profile photo!*'
             },
             accessory: {
               type: 'button',
@@ -124,17 +124,6 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
         style: 'primary',
         action_id: 'approve_edit_message',
         value: JSON.stringify({ editedImage: editedImageResult.localUrl, prompt })
-      });
-      // Post (no modal, current channel)
-      actions.push({
-        type: 'button',
-        text: { type: 'plain_text', text: '📣 Post' },
-        action_id: 'send_to_channel',
-        value: JSON.stringify({
-          results: [{ localUrl: editedImageResult.localUrl, filename: 'Edited Image' }],
-          prompt,
-          channelId
-        })
       });
       // Share… (open modal with channel selector)
       actions.push({
