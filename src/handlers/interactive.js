@@ -338,7 +338,22 @@ async function handleRetrySame({ ack, body, client }) {
   try {
     const payload = parseActionValue(body, {});
     const userId = body.user.id;
+
+    // 🔍 DEBUG LOGGING - Diagnose channel ID issue
+    console.log('🔍 handleRetrySame DEBUG:', {
+      'body.channel.id': body.channel?.id,
+      'body.channel.name': body.channel?.name,
+      'body.container.channel_id': body.container?.channel_id,
+      'body.message.channel': body.message?.channel,
+      'payload.channelId': payload.channelId,
+      'extractChannelId(body)': extractChannelId(body),
+      'userId': userId
+    });
+
     const channelId = payload.channelId || extractChannelId(body);
+    console.log('🎯 Final channelId used for retry:', channelId);
+    console.log('🎯 Is DM channel?', channelId?.startsWith('D'));
+
     const promptValue = payload.prompt || '';
     const files = Array.isArray(payload.files) ? payload.files : [];
     const useProfileRef = payload.useProfileRef ? ['include_profile_reference'] : [];
@@ -379,7 +394,22 @@ async function handleRetryDirect({ ack, body, client }) {
   try {
     const payload = parseActionValue(body, {});
     const userId = body.user.id;
+
+    // 🔍 DEBUG LOGGING - Diagnose channel ID issue
+    console.log('🔍 handleRetryDirect DEBUG:', {
+      'body.channel.id': body.channel?.id,
+      'body.channel.name': body.channel?.name,
+      'body.container.channel_id': body.container?.channel_id,
+      'body.message.channel': body.message?.channel,
+      'payload.channelId': payload.channelId,
+      'extractChannelId(body)': extractChannelId(body),
+      'userId': userId
+    });
+
     const channelId = payload.channelId || extractChannelId(body);
+    console.log('🎯 Final channelId used for retry:', channelId);
+    console.log('🎯 Is DM channel?', channelId?.startsWith('D'));
+
     const promptValue = payload.prompt || '';
     const threadTs = body.message?.thread_ts || body.message?.ts || body.container?.thread_ts || body.container?.message_ts || null;
 
