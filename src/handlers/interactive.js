@@ -2047,37 +2047,62 @@ async function handleShareToChannelSubmission({ ack, body, client }) {
 
   const isPublic = typeof selectedChannel === 'string' && selectedChannel.startsWith('C');
   try {
-    // Build blocks via shared helper
-    const { buildShareMessageBlocks } = require('../blocks/share');
-    const messageBlocks = buildShareMessageBlocks({ results, caption });
+    if (isPublic) {
+      await ensureBotInChannel(client, selectedChannel);
+    }
 
-    // Prefer posting as the user if we have their token (better UX in private DMs/G-channels)
-    const userToken = userTokens.getUserToken(userId, teamId);
-    let posted = false;
-    if (userToken) {
+    // Function: upload a buffer as a Slack file to the selected channel
+    async function uploadBufferAsFile(buffer, filename, initial_comment = undefined) {
       try {
-        const userClient = new WebClient(userToken);
-        await userClient.chat.postMessage({ channel: selectedChannel, text: caption || `🎨 Shared AI-transformed images`, blocks: messageBlocks });
-        posted = true;
-      } catch (userPostErr) {
-        console.log('User-token post failed, falling back to bot:', userPostErr.data?.error || userPostErr.message);
+        await client.files.uploadV2({
+          channel_id: selectedChannel,
+          file: buffer,
+          filename: filename || 'edited_image.jpg',
+          initial_comment
+        });
+        return true;
+      } catch (e) {
+        console.log('files.uploadV2 failed:', e.data?.error || e.message);
+        return false;
       }
     }
 
-    if (!posted) {
-      if (isPublic) {
-        await ensureBotInChannel(client, selectedChannel);
+    // Share each result natively
+    const axios = require('axios');
+    let firstShared = true;
+    for (const r of results || []) {
+      const filename = r.filename || 'edited_image.jpg';
+      const initial_comment = firstShared && caption ? caption : undefined;
+      firstShared = false;
+
+      if (r.fileId) {
+        // We already have a Slack file; share it into the destination channel
+        try {
+          await client.files.share({ file: r.fileId, channels: selectedChannel, initial_comment });
+          continue;
+        } catch (shareErr) {
+          console.log('files.share failed, falling back to upload:', shareErr.data?.error || shareErr.message);
+        }
       }
-      await client.chat.postMessage({ channel: selectedChannel, text: caption || `🎨 Shared AI-transformed images`, blocks: messageBlocks });
+
+      // Fallback: download from our hosted URL and upload as Slack file
+      try {
+        const resp = await axios.get(r.localUrl, { responseType: 'arraybuffer' });
+        const ok = await uploadBufferAsFile(Buffer.from(resp.data), filename, initial_comment);
+        if (!ok) {
+          console.log('Upload fallback failed for', filename);
+        }
+      } catch (dlErr) {
+        console.log('Download failed for', r.localUrl, dlErr.message);
+      }
     }
 
-    // Best-effort confirmation via ephemeral (might fail for private channels if bot not a member)
+    // Confirmation to user
     try {
-      await client.chat.postEphemeral({ channel: selectedChannel, user: userId, text: '✅ Shared your images to this channel.' });
+      await client.chat.postEphemeral({ channel: selectedChannel, user: userId, text: '✅ Shared your image(s) as native Slack files.' });
     } catch (_) {}
   } catch (error) {
     console.error('Error sharing to channel from modal:', error);
-    // Last resort: DM the user with instructions
     await client.chat.postMessage({ channel: userId, text: '❌ Could not share to the selected channel. If it is private, please invite the app and try again.' });
   }
 }
