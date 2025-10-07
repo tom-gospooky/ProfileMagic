@@ -360,7 +360,7 @@ async function handleRetrySame({ ack, body, client }) {
     const threadTs = body.message?.thread_ts || body.message?.ts || body.container?.thread_ts || body.container?.message_ts || null;
 
     // Retry: Use response_url to maintain permission for user-to-user DMs
-    // Don't pass response_url - let it create new processing message like modal does
+    // Pass response_url so processing message works in user-to-user DMs
     await processImagesAsync(
       client,
       userId,
@@ -369,7 +369,7 @@ async function handleRetrySame({ ack, body, client }) {
       files,
       useProfileRef,
       null,
-      null, // No response_url - create new processing message that gets updated
+      body.response_url || null,
       threadTs
     );
   } catch (error) {
@@ -413,7 +413,7 @@ async function handleRetryDirect({ ack, body, client }) {
     const promptValue = payload.prompt || '';
     const threadTs = body.message?.thread_ts || body.message?.ts || body.container?.thread_ts || body.container?.message_ts || null;
 
-    // Don't pass response_url - let it create new processing message like modal does
+    // Pass response_url so processing message works in user-to-user DMs
     await processImagesAsync(
       client,
       userId,
@@ -422,7 +422,7 @@ async function handleRetryDirect({ ack, body, client }) {
       [],
       ['include_profile_reference'],
       null,
-      null, // No response_url - create new processing message that gets updated
+      body.response_url || null,
       threadTs
     );
   } catch (error) {
@@ -1327,18 +1327,35 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
     // const text = `🎨 *Processing ${plannedSourcesCount} image${plannedSourcesCount === 1 ? '' : 's'}...*\n*Prompt:* "${promptValue}"\n\nYour results will appear here shortly!`;
 
     console.log('📤 Attempting to send processing message...');
-    // For slash commands: create processing message that we can update
-    // For retry buttons: skip processing message, will replace button message directly with result
-    if (!responseUrl) {
+    // Always create a processing message that will be updated with results
+    if (responseUrl) {
+      // Use response_url to create processing message (works in user-to-user DMs)
+      try {
+        const isDM = channelId?.startsWith('D');
+        await axios.post(responseUrl, {
+          response_type: 'ephemeral',
+          text,
+          replace_original: false, // Don't replace anything, create new message
+          ...(threadTs && !isDM ? { thread_ts: threadTs } : {})
+        });
+        console.log('✅ Processing message created via response_url');
+        // Mark that we used response_url so we can update it later
+        processingMsg = { viaResponseUrl: true };
+        processingTs = null;
+        processingChannel = channelId;
+      } catch (e) {
+        console.log('❌ response_url failed for processing:', e.response?.data || e.message);
+        // Fallback to sendMessageRobust
+        processingMsg = await sendMessageRobust(client, channelId, userId, text, undefined, { allowPublic: false, threadTs });
+        processingTs = processingMsg?.ts || processingMsg?.message_ts || null;
+        processingChannel = processingMsg?.channel || channelId;
+      }
+    } else {
+      // No response_url: use sendMessageRobust
       processingMsg = await sendMessageRobust(client, channelId, userId, text, undefined, { allowPublic: false, threadTs });
       processingTs = processingMsg?.ts || processingMsg?.message_ts || null;
       processingChannel = processingMsg?.channel || channelId;
-      console.log('✅ Processing message created (will be updated with results)');
-    } else {
-      console.log('⏩ Skipping processing message for retry (will replace button message directly with result)');
-      processingMsg = null;
-      processingTs = null;
-      processingChannel = channelId;
+      console.log('✅ Processing message created via sendMessageRobust');
     }
 
     // Build sources for processing (uploaded + optional profile)
@@ -1460,20 +1477,20 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
         const { SUCCESS_TEXT } = require('../blocks/common');
         const successText = SUCCESS_TEXT;
 
-        // Update processing message or button message with results
-        if (responseUrl) {
-          // For retry buttons: replace the button message with new result
-          console.log('🔍 Replacing button message with new result via response_url');
+        // Update processing message with results
+        if (processingMsg?.viaResponseUrl && responseUrl) {
+          // Processing was created via response_url, update it with replace_original: true
+          console.log('🔍 Updating processing message with results via response_url');
           try {
             const isDM = channelId?.startsWith('D');
             await axios.post(responseUrl, {
               response_type: 'ephemeral',
               text: successText,
               blocks: resultBlocks,
-              replace_original: true, // Replace button message with new result
+              replace_original: true, // Replace the processing message we created
               ...(threadTs && !isDM ? { thread_ts: threadTs } : {})
             });
-            console.log('✅ Button message replaced with new result via response_url');
+            console.log('✅ Processing message updated with results via response_url');
           } catch (e) {
             console.log('❌ response_url result update FAILED:', {
               status: e.response?.status,
@@ -1520,19 +1537,19 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
           text: { type: 'mrkdwn', text: errorMessage }
         }];
 
-        if (responseUrl) {
-          // For retry buttons: replace button message with error
-          console.log('🔍 Replacing button message with error via response_url');
+        if (processingMsg?.viaResponseUrl && responseUrl) {
+          // Processing was created via response_url, update it with error
+          console.log('🔍 Updating processing message with error via response_url');
           try {
             const isDM = channelId?.startsWith('D');
             await axios.post(responseUrl, {
               response_type: 'ephemeral',
               text: errorMessage,
               blocks: errorBlocks,
-              replace_original: true, // Replace button message with error
+              replace_original: true, // Replace the processing message with error
               ...(threadTs && !isDM ? { thread_ts: threadTs } : {})
             });
-            console.log('✅ Button message replaced with error via response_url');
+            console.log('✅ Processing message updated with error via response_url');
           } catch (e) {
             console.log('❌ response_url error update FAILED:', {
               status: e.response?.status,

@@ -24,7 +24,7 @@ async function handleSlashCommand({ command, ack, respond, client, body }) {
     // User is authorized
     if (prompt && prompt.length > 0) {
       // Direct automatic generation based on current profile + text
-      await processDirectPrompt(client, userId, teamId, prompt, body.trigger_id, respond, channelId, threadTs);
+      await processDirectPrompt(client, userId, teamId, prompt, body.trigger_id, respond, channelId, threadTs, responseUrl);
     } else {
       // No text: open the advanced modal (file selection)
       await showFileSelectionModal(client, body.trigger_id, teamId, userId, channelId, '', responseUrl, threadTs);
@@ -38,7 +38,7 @@ async function handleSlashCommand({ command, ack, respond, client, body }) {
   }
 }
 
-async function processDirectPrompt(client, userId, teamId, prompt, triggerId, respond, channelId, threadTs) {
+async function processDirectPrompt(client, userId, teamId, prompt, triggerId, respond, channelId, threadTs, responseUrl) {
   // Use processImagesAsync from interactive.js for consistent behavior
   const { processImagesAsync } = require('./interactive');
 
@@ -51,7 +51,7 @@ async function processDirectPrompt(client, userId, teamId, prompt, triggerId, re
     [], // no uploaded files
     ['include_profile_reference'], // use profile photo
     null, // profilePhoto will be fetched inside processImagesAsync
-    null, // no response_url for slash commands
+    responseUrl, // Pass response_url to work in user-to-user DMs
     threadTs
   );
 }
