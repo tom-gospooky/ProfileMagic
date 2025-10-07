@@ -1328,11 +1328,35 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
     // const text = `🎨 *Processing ${plannedSourcesCount} image${plannedSourcesCount === 1 ? '' : 's'}...*\n*Prompt:* "${promptValue}"\n\nYour results will appear here shortly!`;
 
     console.log('📤 Attempting to send processing message...');
-    // Don't use response_url for processing message - save it for final result update
-    // Using response_url here would consume it and make it unavailable for the result update
-    processingMsg = await sendMessageRobust(client, channelId, userId, text, undefined, { allowPublic: false, threadTs });
-    processingTs = processingMsg?.ts || processingMsg?.message_ts || null;
-    processingChannel = processingMsg?.channel || channelId;
+    // Always create a new processing message for this job
+    // It will be updated with results when processing completes
+    if (responseUrl) {
+      // For button interactions: create new ephemeral processing message (don't replace button message)
+      try {
+        const isDM = channelId?.startsWith('D');
+        await axios.post(responseUrl, {
+          response_type: 'ephemeral',
+          text,
+          replace_original: false, // Create NEW message, don't replace button message
+          ...(threadTs && !isDM ? { thread_ts: threadTs } : {})
+        });
+        console.log('✅ Processing message created via response_url');
+        // Track that we used response_url to create a message we'll need to update differently
+        processingMsg = { viaResponseUrl: true };
+        processingTs = null; // No ts available from response_url
+        processingChannel = channelId;
+      } catch (e) {
+        console.log('❌ response_url failed for processing message:', e.response?.data || e.message);
+        processingMsg = await sendMessageRobust(client, channelId, userId, text, undefined, { allowPublic: false, threadTs });
+        processingTs = processingMsg?.ts || processingMsg?.message_ts || null;
+        processingChannel = processingMsg?.channel || channelId;
+      }
+    } else {
+      // For slash commands: create processing message normally
+      processingMsg = await sendMessageRobust(client, channelId, userId, text, undefined, { allowPublic: false, threadTs });
+      processingTs = processingMsg?.ts || processingMsg?.message_ts || null;
+      processingChannel = processingMsg?.channel || channelId;
+    }
 
     // Build sources for processing (uploaded + optional profile)
     let sources = [];
@@ -1453,58 +1477,29 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
         const { SUCCESS_TEXT } = require('../blocks/common');
         const successText = SUCCESS_TEXT;
 
-        // Try response_url first (for button interactions), then try updating processing message
-        if (responseUrl) {
-          console.log('🔍 RESULT UPDATE via response_url:', {
-            hasResponseUrl: !!responseUrl,
-            blockCount: resultBlocks.length,
-            channelId,
-            isUserToUserDM: channelId?.startsWith('D')
-          });
-
+        // Update processing message with results
+        if (processingMsg?.viaResponseUrl && responseUrl) {
+          // Processing message was created via response_url, update it with replace_original: true
+          console.log('🔍 Updating processing message via response_url (replace_original: true)');
           try {
-            // response_url doesn't support thread_ts in DMs (causes wrong_thread_ts error)
             const isDM = channelId?.startsWith('D');
-            const response = await axios.post(responseUrl, {
+            await axios.post(responseUrl, {
               response_type: 'ephemeral',
               text: successText,
               blocks: resultBlocks,
-              replace_original: true, // Replace button message with results
+              replace_original: true, // Replace the processing message we just created
               ...(threadTs && !isDM ? { thread_ts: threadTs } : {})
             });
-
-            console.log('✅ Result update via response_url succeeded:', {
-              status: response.status,
-              statusText: response.statusText
-            });
-
-            // Note: Ephemeral processing message will remain visible (can't be deleted via API)
+            console.log('✅ Processing message updated with results via response_url');
           } catch (e) {
             console.log('❌ response_url result update FAILED:', {
               status: e.response?.status,
               statusText: e.response?.statusText,
               errorData: e.response?.data,
-              errorMessage: e.message,
-              willFallbackTo: 'update processing message or sendMessageRobust'
+              errorMessage: e.message
             });
-
-            // Fallback: try updating processing message
-            if (processingTs && processingMsg?.deliveryMethod !== 'ephemeral') {
-              try {
-                await client.chat.update({
-                  channel: processingChannel,
-                  ts: processingTs,
-                  text: successText,
-                  blocks: resultBlocks
-                });
-                console.log('✅ Results updated in processing message');
-              } catch (updateError) {
-                console.log('❌ Failed to update processing message:', updateError.data?.error || updateError.message);
-                await sendMessageRobust(client, channelId, userId, successText, resultBlocks, { allowPublic: false, threadTs });
-              }
-            } else {
-              await sendMessageRobust(client, channelId, userId, successText, resultBlocks, { allowPublic: false, threadTs });
-            }
+            // Fallback: send new message
+            await sendMessageRobust(client, channelId, userId, successText, resultBlocks, { allowPublic: false, threadTs });
           }
         } else if (processingTs && processingMsg?.deliveryMethod !== 'ephemeral') {
           try {
@@ -1542,55 +1537,28 @@ async function processImagesAsync(client, userId, channelId, promptValue, upload
           text: { type: 'mrkdwn', text: errorMessage }
         }];
 
-        if (responseUrl) {
-          console.log('🔍 ERROR UPDATE via response_url:', {
-            hasResponseUrl: !!responseUrl,
-            channelId,
-            isUserToUserDM: channelId?.startsWith('D')
-          });
-
+        if (processingMsg?.viaResponseUrl && responseUrl) {
+          // Processing message was created via response_url, update it with error
+          console.log('🔍 Updating processing message with error via response_url');
           try {
-            // response_url doesn't support thread_ts in DMs (causes wrong_thread_ts error)
             const isDM = channelId?.startsWith('D');
-            const response = await axios.post(responseUrl, {
+            await axios.post(responseUrl, {
               response_type: 'ephemeral',
               text: errorMessage,
               blocks: errorBlocks,
-              replace_original: true, // Replace button message with error
+              replace_original: true, // Replace the processing message with error
               ...(threadTs && !isDM ? { thread_ts: threadTs } : {})
             });
-
-            console.log('✅ Error update via response_url succeeded:', {
-              status: response.status,
-              statusText: response.statusText
-            });
-            // Note: Ephemeral processing message will remain visible
+            console.log('✅ Processing message updated with error via response_url');
           } catch (e) {
             console.log('❌ response_url error update FAILED:', {
               status: e.response?.status,
               statusText: e.response?.statusText,
               errorData: e.response?.data,
-              errorMessage: e.message,
-              willFallbackTo: 'update processing message or sendMessageRobust'
+              errorMessage: e.message
             });
-
-            // Fallback: try updating processing message
-            if (processingTs && processingMsg?.deliveryMethod !== 'ephemeral') {
-              try {
-                await client.chat.update({
-                  channel: processingChannel,
-                  ts: processingTs,
-                  text: errorMessage,
-                  blocks: errorBlocks
-                });
-                console.log('✅ Error updated in processing message');
-              } catch (updateError) {
-                console.log('❌ Failed to update processing message with error:', updateError.data?.error || updateError.message);
-                await sendMessageRobust(client, channelId, userId, errorMessage, errorBlocks, { allowPublic: false, threadTs });
-              }
-            } else {
-              await sendMessageRobust(client, channelId, userId, errorMessage, errorBlocks, { allowPublic: false, threadTs });
-            }
+            // Fallback: send new message
+            await sendMessageRobust(client, channelId, userId, errorMessage, errorBlocks, { allowPublic: false, threadTs });
           }
         } else if (processingTs && processingMsg?.deliveryMethod !== 'ephemeral') {
           try {
