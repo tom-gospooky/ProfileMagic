@@ -360,7 +360,7 @@ async function handleRetrySame({ ack, body, client }) {
     const threadTs = body.message?.thread_ts || body.message?.ts || body.container?.thread_ts || body.container?.message_ts || null;
 
     // Retry: Use response_url to maintain permission for user-to-user DMs
-    // Set replaceOriginal=false to keep previous messages visible
+    // Don't pass response_url - let it create new processing message like modal does
     await processImagesAsync(
       client,
       userId,
@@ -369,7 +369,7 @@ async function handleRetrySame({ ack, body, client }) {
       files,
       useProfileRef,
       null,
-      body.response_url || null, // Use response_url for DM permission
+      null, // No response_url - create new processing message that gets updated
       threadTs
     );
   } catch (error) {
@@ -413,8 +413,7 @@ async function handleRetryDirect({ ack, body, client }) {
     const promptValue = payload.prompt || '';
     const threadTs = body.message?.thread_ts || body.message?.ts || body.container?.thread_ts || body.container?.message_ts || null;
 
-    // Retry: Use response_url to maintain permission for user-to-user DMs
-    // Set replaceOriginal=false to keep previous messages visible
+    // Don't pass response_url - let it create new processing message like modal does
     await processImagesAsync(
       client,
       userId,
@@ -423,7 +422,7 @@ async function handleRetryDirect({ ack, body, client }) {
       [],
       ['include_profile_reference'],
       null,
-      body.response_url || null, // Use response_url for DM permission
+      null, // No response_url - create new processing message that gets updated
       threadTs
     );
   } catch (error) {
