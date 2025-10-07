@@ -39,80 +39,21 @@ async function handleSlashCommand({ command, ack, respond, client, body }) {
 }
 
 async function processDirectPrompt(client, userId, teamId, prompt, triggerId, respond, channelId, threadTs) {
-  // Send immediate acknowledgment
-  await respond({
-    text: '🎨 Processing...',
-    response_type: 'ephemeral'
-  });
+  // Use processImagesAsync from interactive.js for consistent behavior
+  const { processImagesAsync } = require('./interactive');
 
-  // Process in background
-  try {
-    // Get current profile photo
-    const currentPhoto = await slackService.getCurrentProfilePhoto(client, userId);
-
-    if (!currentPhoto) {
-      // Send DM to user since we can't use respond() again
-      await client.chat.postMessage({
-        channel: userId, // DM the user directly
-        text: '❌ Could not fetch your current profile photo. Please make sure you have a profile photo set.'
-      });
-      return;
-    }
-
-    // Edit the image (without reference for now)
-    const editedImageResult = await imageService.editImage(currentPhoto, prompt, client, userId);
-
-    // Send single response with unified layout (no before/after)
-    const { buildSuccessHeader } = require('../blocks/common');
-    const responseBlocks = [ buildSuccessHeader(prompt) ];
-
-    // Slack-files-first: Skip inline image preview if no external URL
-    if (editedImageResult.localUrl) {
-      responseBlocks.push({
-        type: 'image',
-        title: { type: 'plain_text', text: '✨ Edited' },
-        image_url: editedImageResult.localUrl,
-        alt_text: 'AI-edited profile photo'
-      });
-    }
-
-    // Standardized action buttons via shared helper
-    const { buildStandardActions } = require('../blocks/results');
-    const actions = buildStandardActions({
-      results: [{
-        localUrl: editedImageResult.localUrl || null,
-        fileId: editedImageResult.fileId || editedImageResult.slackFile?.id || null,
-        slackUrl: editedImageResult.slackFile?.url_private_download || null,
-        filename: 'Edited Image.jpg'
-      }],
-      prompt,
-      channelId,
-      approveActionId: 'approve_edit_message',
-      retryActionId: 'retry_direct',
-      retryPayload: { prompt, channelId },
-      advancedPromptValue: prompt
-    });
-    responseBlocks.push({ type: 'actions', elements: actions });
-
-    // Send single comprehensive response
-    const { SUCCESS_TEXT } = require('../blocks/common');
-    await respond({
-      text: SUCCESS_TEXT,
-      response_type: 'ephemeral',
-      blocks: responseBlocks
-    });
-
-  } catch (error) {
-    console.error('Error processing direct prompt:', error);
-    const { buildErrorBlocks, buildErrorText } = require('../blocks/common');
-    const blocks = buildErrorBlocks(error);
-    const text = buildErrorText(error);
-    try {
-      await respond({ text, response_type: 'ephemeral', blocks });
-    } catch (respondError) {
-      try { await client.chat.postMessage({ channel: userId, text }); } catch (dmError) { console.error('Failed to send error message:', dmError); }
-    }
-  }
+  // Process using profile photo (slash command always uses current profile)
+  await processImagesAsync(
+    client,
+    userId,
+    channelId,
+    prompt,
+    [], // no uploaded files
+    ['include_profile_reference'], // use profile photo
+    null, // profilePhoto will be fetched inside processImagesAsync
+    null, // no response_url for slash commands
+    threadTs
+  );
 }
 
 async function showFileSelectionModal(client, triggerId, teamId, userId, channelId, prompt = '', responseUrl = null, threadTs = null) {
