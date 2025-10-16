@@ -362,6 +362,13 @@ async function editImage(imageUrl, prompt, client, userId, referenceImageUrl = n
 
   } catch (error) {
     console.error('editImage error:', error.constructor.name, error.message);
+    const detail = {};
+    if (error.reason) detail.reason = error.reason;
+    if (error.userMessage) detail.userMessage = error.userMessage;
+    if (error.status) detail.status = error.status;
+    if (Object.keys(detail).length > 0) {
+      console.error('editImage diagnostics:', detail);
+    }
     if (!isProduction) {
       console.error('Full stack trace:', error.stack);
     }
@@ -412,6 +419,13 @@ async function editImageGroup(imageUrls, prompt, client, userId, channelId = nul
 
   } catch (error) {
     console.error('editImageGroup error:', error.constructor.name, error.message);
+    if (error.reason || error.userMessage || error.status) {
+      console.error('editImageGroup diagnostics:', {
+        ...(error.reason ? { reason: error.reason } : {}),
+        ...(error.userMessage ? { userMessage: error.userMessage } : {}),
+        ...(error.status ? { status: error.status } : {})
+      });
+    }
     if (!isProduction) console.error('Full stack trace:', error.stack);
     throw new Error('Failed to process your images. Please try again.');
   }

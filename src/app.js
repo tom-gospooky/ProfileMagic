@@ -28,6 +28,9 @@ if (!isProduction) console.log('✅ All required environment variables are set')
 // Create a Socket Mode receiver that doesn't start an HTTP server
 const receiver = new SocketModeReceiver({
   appToken: process.env.SLACK_APP_TOKEN,
+  // Relax ping/pong windows to tolerate brief event-loop blocking (defaults: 5000ms)
+  clientPingTimeout: Number(process.env.SLACK_CLIENT_PING_TIMEOUT || 10000),
+  serverPingTimeout: Number(process.env.SLACK_SERVER_PING_TIMEOUT || 15000)
 });
 
 const app = new App({
