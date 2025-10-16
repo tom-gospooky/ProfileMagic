@@ -5,6 +5,38 @@ const interactiveHandler = require('./handlers/interactive');
 const extendedCommandHandler = require('./handlers/extendedCommand');
 const fileServer = require('./services/fileServer');
 
+async function maybeRunPromptDiagnostic() {
+  if (process.env.RUN_PROMPT_DIAGNOSTIC !== '1') return;
+
+  const imageUrl = process.env.DIAG_IMAGE_URL;
+  const prompt = process.env.DIAG_PROMPT || 'Prompt diagnostic: add sunglasses';
+
+  if (!imageUrl) {
+    console.warn('RUN_PROMPT_DIAGNOSTIC=1 but DIAG_IMAGE_URL missing. Skipping diagnostic run.');
+    return;
+  }
+
+  try {
+    console.log('🧪 Running prompt diagnostic flow...');
+    const imageService = require('./services/image');
+    const result = await imageService.editImage(
+      imageUrl,
+      prompt,
+      null,
+      'DIAGNOSTIC_USER',
+      null,
+      'DIAGNOSTIC_CHANNEL'
+    );
+    console.log('🧪 Prompt diagnostic completed:', result?.origin || 'unknown result origin');
+  } catch (diagnosticError) {
+    console.error('🧪 Prompt diagnostic failed:', {
+      message: diagnosticError.message,
+      reason: diagnosticError.reason,
+      status: diagnosticError.status
+    });
+  }
+}
+
 // Validate required environment variables
 const requiredEnvVars = [
   'SLACK_BOT_TOKEN',
@@ -111,6 +143,7 @@ console.log('🚀 Starting Boo...');
     // Start Slack app in Socket Mode (no HTTP port needed)
     console.log('⚡ Starting Slack app...');
     await app.start();
+    await maybeRunPromptDiagnostic();
 console.log('⚡️ Boo is running!');
     
   } catch (error) {

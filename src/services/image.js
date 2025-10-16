@@ -155,6 +155,7 @@ async function callGeminiWithRetry(ai, contentParts, isProduction) {
     .map(s => s.trim())
     .filter(Boolean);
   const modelList = [...new Set([...defaultModels, ...models])];
+  let lastError = null;
 
   for (const modelName of modelList) {
     for (let attempt = 1; attempt <= API_RETRY.MAX_ATTEMPTS; attempt++) {
@@ -179,7 +180,20 @@ async function callGeminiWithRetry(ai, contentParts, isProduction) {
       } catch (err) {
         const status = err?.status || err?.code || err?.response?.status;
         const internal = /INTERNAL|UNAVAILABLE|DEADLINE|500/.test(String(status)) || /INTERNAL/.test(err?.message || '');
-        if (!isProduction) console.warn(`Gemini error on model=${modelName} attempt=${attempt}:`, err?.message || err);
+        const diag = {
+          model: modelName,
+          attempt,
+          status: status || undefined,
+          reason: err?.reason || err?.finishReason || err?.code || undefined,
+          message: err?.message || undefined
+        };
+        if (isProduction) {
+          console.error('Gemini call failed:', JSON.stringify(diag));
+        } else {
+          console.warn(`Gemini error on model=${modelName} attempt=${attempt}:`, err?.message || err);
+          console.warn('Gemini error diagnostics:', diag);
+        }
+        lastError = err;
         if (attempt < API_RETRY.MAX_ATTEMPTS && internal) {
           const backoff = API_RETRY.BACKOFF_BASE_MS * attempt;
           await new Promise(r => setTimeout(r, backoff));
@@ -189,7 +203,15 @@ async function callGeminiWithRetry(ai, contentParts, isProduction) {
       }
     }
   }
-  throw new Error('GENERATION_FAILED');
+  const failure = new Error('GENERATION_FAILED');
+  if (lastError) {
+    failure.reason = lastError.reason || lastError.finishReason || lastError.code || lastError.status || lastError.response?.status || lastError.message;
+    if (lastError.status || lastError.response?.status) {
+      failure.status = lastError.status || lastError.response?.status;
+    }
+    failure.cause = lastError;
+  }
+  throw failure;
 }
 
 // Helper function to convert Buffer to the format Gemini expects
@@ -368,6 +390,8 @@ async function editImage(imageUrl, prompt, client, userId, referenceImageUrl = n
     if (error.status) detail.status = error.status;
     if (Object.keys(detail).length > 0) {
       console.error('editImage diagnostics:', detail);
+    } else {
+      console.error('editImage diagnostics: no additional details captured');
     }
     if (!isProduction) {
       console.error('Full stack trace:', error.stack);
@@ -425,6 +449,8 @@ async function editImageGroup(imageUrls, prompt, client, userId, channelId = nul
         ...(error.userMessage ? { userMessage: error.userMessage } : {}),
         ...(error.status ? { status: error.status } : {})
       });
+    } else {
+      console.error('editImageGroup diagnostics: no additional details captured');
     }
     if (!isProduction) console.error('Full stack trace:', error.stack);
     throw new Error('Failed to process your images. Please try again.');
